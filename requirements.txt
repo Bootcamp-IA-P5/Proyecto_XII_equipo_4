@@ -1,0 +1,15 @@
+# Core dependencies for logo detection pipeline
+opencv-python>=4.8.0
+numpy>=1.24.0
+pillow>=10.0.0
+
+# YOLO for object detection
+ultralytics>=8.0.0
+
+# PyTorch (CPU version - change to cuda version if GPU available)
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Utilities
+tqdm>=4.65.0
+python-dotenv>=1.0.0
