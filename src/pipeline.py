@@ -249,6 +249,96 @@ class DetectionPipeline:
         
         return results
     
+    def process_video(
+        self,
+        video_path: Union[str, Path],
+        output_dir: Union[str, Path] = None,
+        show_result: bool = False
+    ) -> Dict:
+        """
+        Process a video file through the detection pipeline.
+        
+        Args:
+            video_path: Path to the input video
+            output_dir: Directory for output files. Defaults to config.OUTPUT_DIR
+            show_result: Whether to display frames during processing
+            
+        Returns:
+            Dictionary with processing results
+        """
+        video_path = Path(video_path)
+        output_dir = Path(output_dir) if output_dir else config.OUTPUT_DIR
+        
+        result = {
+            'input_path': str(video_path),
+            'success': False,
+            'frame_count': 0,
+            'detection_count': 0,
+            'output_path': None,
+            'processing_time': 0
+        }
+        
+        cap = cv2.VideoCapture(str(video_path))
+        if not cap.isOpened():
+            result['error'] = f"Could not open video: {video_path}"
+            return result
+        
+        # Get video properties
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        fps = cap.get(cv2.CAP_PROP_FPS)
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+        
+        # Prepare output video
+        output_path = output_dir / f"detected_{video_path.name}"
+        # Use a common codec
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(str(output_path), fourcc, fps, (width, height))
+        
+        start_time = datetime.now()
+        frame_idx = 0
+        total_detections = 0
+        
+        print(f"Processing video: {video_path.name} ({total_frames} frames)")
+        
+        try:
+            with tqdm(total=total_frames, desc="Processing frames") as pbar:
+                while cap.isOpened():
+                    ret, frame = cap.read()
+                    if not ret:
+                        break
+                    
+                    # Run detection on frame
+                    detections = self.detect(frame)
+                    total_detections += len(detections)
+                    
+                    # Annotate frame
+                    annotated = annotate_image(frame, detections)
+                    
+                    # Write frame
+                    out.write(annotated)
+                    
+                    if show_result:
+                        cv2.imshow(f"Processing: {video_path.name}", annotated)
+                        if cv2.waitKey(1) & 0xFF == ord('q'):
+                            break
+                    
+                    frame_idx += 1
+                    pbar.update(1)
+        finally:
+            cap.release()
+            out.release()
+            if show_result:
+                cv2.destroyAllWindows()
+        
+        result['processing_time'] = (datetime.now() - start_time).total_seconds()
+        result['frame_count'] = frame_idx
+        result['detection_count'] = total_detections
+        result['output_path'] = str(output_path)
+        result['success'] = True
+        
+        return result
+
     def run(
         self,
         source: Union[str, Path],
@@ -269,6 +359,9 @@ class DetectionPipeline:
         source = Path(source)
         
         if source.is_file():
+            # Check if it's a video
+            if source.suffix.lower() in config.SUPPORTED_VIDEO_FORMATS:
+                return self.process_video(source, output_dir=output_dir, show_result=show)
             return self.process_image(source, save_output=True, show_result=show, output_dir=output_dir)
         elif source.is_dir():
             return self.process_directory(source, output_dir=output_dir)

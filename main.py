@@ -56,6 +56,11 @@ Examples:
         type=str,
         help="Path to a directory containing images"
     )
+    input_group.add_argument(
+        "-V", "--video",
+        type=str,
+        help="Path to a video file"
+    )
     
     # Output options
     parser.add_argument(
@@ -167,6 +172,34 @@ def main():
                 print("\n   Detection details:")
                 for i, det in enumerate(result['detections'], 1):
                     print(f"   {i}. {det['label']}: {det['confidence']:.1%}")
+        else:
+            print(f"\n❌ Processing failed: {result.get('error', 'Unknown error')}")
+            sys.exit(1)
+    
+    elif args.video:
+        # Video processing
+        video_path = Path(args.video)
+        
+        if not video_path.exists():
+            print(f"Error: Video not found: {video_path}")
+            sys.exit(1)
+        
+        print(f"Processing video: {video_path}")
+        
+        result = pipeline.process_video(
+            video_path,
+            output_dir=output_dir,
+            show_result=args.show
+        )
+        
+        if result['success']:
+            print(f"\n✅ Processing complete!")
+            print(f"   Frames processed: {result['frame_count']}")
+            print(f"   Total detections: {result['detection_count']}")
+            print(f"   Processing time: {result['processing_time']:.2f}s")
+            
+            if result['output_path']:
+                print(f"   Output saved to: {result['output_path']}")
         else:
             print(f"\n❌ Processing failed: {result.get('error', 'Unknown error')}")
             sys.exit(1)

@@ -28,6 +28,9 @@ MODELS_DIR = BASE_DIR / "models"
 # Supported image formats
 SUPPORTED_FORMATS = [".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff"]
 
+# Supported video formats
+SUPPORTED_VIDEO_FORMATS = [".mp4", ".avi", ".mov", ".mkv", ".wmv"]
+
 # Default image size for preprocessing (width, height)
 DEFAULT_IMAGE_SIZE = (640, 640)
 
