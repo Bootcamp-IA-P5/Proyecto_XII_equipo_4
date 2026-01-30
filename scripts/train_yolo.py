@@ -2,6 +2,12 @@ from ultralytics import YOLO
 # Ejemplo de ejecución:
 # python scripts/train_yolo.py
 
+# Para definir los argumentos:
+# python scripts/train_yolo.py --epochs 100 --batch 8 --imgsz 640 --name full_training_run
+
+#Para ver los resultados del entrenamiento:
+# python scripts/test_model.py --model runs/logo_detection/full_training_run/weights/best.pt --source path/to/test/images
+# \runs\detect\runs\logo_detection\full_training_run\results.csv
 
 import argparse
 import os
