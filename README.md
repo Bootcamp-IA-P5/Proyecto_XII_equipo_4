@@ -37,6 +37,22 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
+### 4. Ejecutar la aplicación
+
+**Opción 1: Interfaz Web (Recomendado)**
+```bash
+python run_app.py
+```
+
+**Opción 2: Con Docker Compose**
+```bash
+docker-compose up
+# O en segundo plano:
+docker-compose up -d
+```
+
+Accede a `http://localhost:8501`
+
 ## 📁 Estructura del Proyecto
 
 ```
@@ -58,6 +74,32 @@ Proyecto_XII_equipo_4/
 ```
 
 ## 💻 Uso
+
+### Web Interface (Streamlit)
+
+**Mejor opción para usuarios no técnicos** - Interfaz gráfica completa para análisis de videos
+
+```bash
+python run_app.py
+```
+
+O directamente:
+```bash
+streamlit run streamlit_app.py
+```
+
+Accede a `http://localhost:8501` en tu navegador.
+
+**Características de la interfaz web:**
+- 📹 Carga de videos locales
+- 🔗 Descarga de videos desde YouTube, Instagram, TikTok, Facebook, Twitter
+- 📊 Análisis detallado con estadísticas en tiempo real
+- 🖼️ Extracción automática de crops de logos detectados
+- 💾 Base de datos SQLite para almacenamiento de resultados
+- 📄 Reportes exportables (TXT y JSON)
+- 📈 Panel de resumen de detecciones por marca
+
+Para más detalles, ver [STREAMLIT_README.md](STREAMLIT_README.md)
 
 ### Línea de Comandos
 
@@ -144,11 +186,14 @@ Edita `src/config.py` para ajustar:
 
 ## 🔮 Próximas Funcionalidades
 
-- [ ] Procesamiento de video
+- [x] Procesamiento de video
+- [x] Base de datos para almacenar detecciones
+- [x] Frontend web con Streamlit
+- [x] Descarga de videos desde redes sociales
 - [ ] Entrenamiento de modelo custom para logos
-- [ ] Base de datos para almacenar detecciones
-- [ ] Frontend web con Streamlit
 - [ ] API REST para integración
+- [ ] Dashboard avanzado con gráficos
+- [ ] Sistema de notificaciones
 
 ## 👥 Equipo
 

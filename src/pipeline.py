@@ -131,6 +131,42 @@ class DetectionPipeline:
         
         return detections
     
+    def detect_objects(
+        self,
+        image: np.ndarray,
+        confidence_threshold: float = None
+    ) -> List[Dict]:
+        """
+        Detect objects in an image (alias for detect with different return format).
+        
+        Args:
+            image: Input image as numpy array
+            confidence_threshold: Optional confidence threshold override
+            
+        Returns:
+            List of detection dictionaries with keys: class, confidence, bbox
+        """
+        # Temporarily override confidence if provided
+        original_conf = self.confidence_threshold
+        if confidence_threshold is not None:
+            self.confidence_threshold = confidence_threshold
+        
+        detections = self.detect(image, verbose=False)
+        
+        # Restore original confidence
+        self.confidence_threshold = original_conf
+        
+        # Convert format
+        formatted_detections = []
+        for det in detections:
+            formatted_detections.append({
+                'class': det['label'],
+                'confidence': det['confidence'],
+                'bbox': det['box']
+            })
+        
+        return formatted_detections
+    
     def process_image(
         self,
         image_path: Union[str, Path],
