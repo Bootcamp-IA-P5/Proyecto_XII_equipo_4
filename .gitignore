@@ -204,4 +204,13 @@ cython_debug/
 # Marimo
 marimo/_static/
 marimo/_lsp/
-__marimo__/
+
+# Project Specific
+data/
+runs/
+models/
+inference_results/
+*.pt
+*.mp4
+*.avi
+scripts/create_test_video.py
