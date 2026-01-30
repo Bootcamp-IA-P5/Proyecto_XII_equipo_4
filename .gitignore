@@ -222,3 +222,6 @@ inference_results/
 *.mp4
 *.avi
 scripts/create_test_video.py
+
+#OTROS
+README_req.md
