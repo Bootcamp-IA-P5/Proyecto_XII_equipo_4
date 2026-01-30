@@ -212,3 +212,13 @@ data/*
 models/*
 !models/.gitkeep
 runs/*
+
+# Project Specific
+data/
+runs/
+models/
+inference_results/
+*.pt
+*.mp4
+*.avi
+scripts/create_test_video.py

@@ -8,6 +8,7 @@ from ultralytics import YOLO
 #Para ver los resultados del entrenamiento:
 # python scripts/test_model.py --model runs/logo_detection/full_training_run/weights/best.pt --source path/to/test/images
 # \runs\detect\runs\logo_detection\full_training_run\results.csv
+
 import argparse
 import os
 import sys
