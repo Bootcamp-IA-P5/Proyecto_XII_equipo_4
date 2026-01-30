@@ -2,10 +2,19 @@ from ultralytics import YOLO
 # Ejemplo de ejecución:
 # python scripts/train_yolo.py
 
+# Para definir los argumentos:
+# python scripts/train_yolo.py --epochs 100 --batch 8 --imgsz 640 --name full_training_run
+
+#Para ver los resultados del entrenamiento:
+# python scripts/test_model.py --model runs/logo_detection/full_training_run/weights/best.pt --source path/to/test/images
+# \runs\detect\runs\logo_detection\full_training_run\results.csv
 import argparse
 import os
 import sys
 from pathlib import Path
+
+# Para lanzar el entrenamiento:
+# python scripts/train_yolo.py --epochs 100 --batch 8 --imgsz 640 --name full_training_run
 
 # Add project root to path to import src
 sys.path.append(str(Path(__file__).parent.parent))
@@ -63,13 +72,38 @@ def train_yolo(
     
     # Entrenar
     results = model.train(**args)
-    
     print(f"Entrenamiento finalizado. Resultados guardados en runs/{project_name}/{experiment_name}")
-    
-    # Validar
-    print("Ejecutando validación...")
+
+    # Mostrar métricas de entrenamiento
+    # Mostrar métricas de entrenamiento (Calculando sobre el set de entrenamiento)
+    print("\n--- MÉTRICAS DE ENTRENAMIENTO (Evaluar Overfitting) ---")
+    print("Calculando métricas sobre el conjunto de TRAIN (esto puede tardar)...")
+    try:
+        # Forzamos validación en split='train' para ver rendimiento real en entrenamiento
+        train_metrics = model.val(split='train')
+        
+        print(f"Precisión (precision): {train_metrics.box.precision:.3f}")
+        print(f"Recall: {train_metrics.box.recall:.3f}")
+        print(f"F1-score: {train_metrics.box.f1:.3f}")
+        print(f"mAP50: {train_metrics.box.map50:.3f}")
+        print(f"mAP50-95: {train_metrics.box.map:.3f}")
+    except Exception as e:
+        print(f"No se pudieron calcular métricas de entrenamiento: {e}")
+
+
+    # Validar en el conjunto de validación
+    print("\nEjecutando validación...")
     metrics = model.val()
-    print(f"mAP50-95: {metrics.box.map}")
+    print("\n--- MÉTRICAS DE VALIDACIÓN ---")
+    print(f"Precisión (precision): {metrics.box.precision:.3f}")
+    print(f"Recall: {metrics.box.recall:.3f}")
+    print(f"F1-score: {metrics.box.f1:.3f}")
+    print(f"mAP50: {metrics.box.map50:.3f}")
+    print(f"mAP50-95: {metrics.box.map:.3f}")
+    print(f"Número de imágenes evaluadas: {metrics.box.seen}")
+
+    # Overfitting: sugerencia
+    print("\nPara evaluar overfitting, compara las métricas de entrenamiento y validación. Si el mAP de entrenamiento es mucho mayor que el de validación, puede haber overfitting.")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Entrenar YOLOv8 para detección de logos')

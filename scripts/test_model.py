@@ -48,14 +48,42 @@ def test_model(
         name='predict',
         exist_ok=True
     )
-    
     print(f"Resultados guardados en {output_dir}/predict")
-    
-    # Mostrar algunas detecciones si es un directorio
+
+    # Calcular métricas si hay ground truth disponible
+    # Se asume que si el source es un directorio de validación, existen labels en formato YOLO
+    # y que el modelo fue entrenado con ese mismo dataset
     if Path(source).is_dir():
+        # Intentar encontrar el directorio de labels de validación
+        # Usamos las rutas configuradas en src.config para mayor seguridad
+        val_labels_dir = OUTPUT_DIR / "yolo_dataset" / "labels" / "val"
+        val_images_dir = OUTPUT_DIR / "yolo_dataset" / "images" / "val"
+        data_yaml_path = OUTPUT_DIR / "yolo_dataset" / "data.yaml"
+        
+        if val_labels_dir.exists() and val_images_dir.exists() and data_yaml_path.exists():
+            print("Calculando métricas de evaluación sobre el conjunto de validación...")
+            try:
+                metrics = model.val(
+                    data=str(data_yaml_path),
+                    split="val"
+                )
+                print("\n--- MÉTRICAS DE EVALUACIÓN ---")
+                print(f"Precisión (precision): {metrics.box.precision:.3f}")
+                print(f"Recall: {metrics.box.recall:.3f}")
+                print(f"F1-score: {metrics.box.f1:.3f}")
+                print(f"mAP50: {metrics.box.map50:.3f}")
+                print(f"mAP50-95: {metrics.box.map:.3f}")
+                print(f"Número de imágenes evaluadas: {metrics.box.seen}")
+                
+                # Overfitting: comparar mAP de validación vs entrenamiento si está disponible
+                print("\nPara evaluar overfitting, compara el mAP de validación mostrado aquí con el mAP de entrenamiento reportado al final del entrenamiento en train_yolo.py.")
+            except Exception as e:
+                print(f"No se pudieron calcular métricas de validación: {e}")
+        else:
+            print("No se encontraron etiquetas de validación para calcular métricas.")
+
         result_files = list(Path(f"{output_dir}/predict").glob('*.jpg')) + \
                        list(Path(f"{output_dir}/predict").glob('*.png'))
-        
         if result_files:
             # Mostrar 3 imágenes aleatorias
             samples = random.sample(result_files, min(3, len(result_files)))
