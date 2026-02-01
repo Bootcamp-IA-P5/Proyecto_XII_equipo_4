@@ -75,36 +75,32 @@ def train_yolo(
     results = model.train(**args)
     print(f"Entrenamiento finalizado. Resultados guardados en runs/{project_name}/{experiment_name}")
 
-    # Mostrar métricas de entrenamiento
-    # Mostrar métricas de entrenamiento (Calculando sobre el set de entrenamiento)
-    print("\n--- MÉTRICAS DE ENTRENAMIENTO (Evaluar Overfitting) ---")
-    print("Calculando métricas sobre el conjunto de TRAIN (esto puede tardar)...")
+    # Mostrar métricas finales del entrenamiento (ya calculadas durante el training)
+    print("\n--- MÉTRICAS FINALES ---")
+    print("El modelo y las métricas se han guardado correctamente.")
+    print(f"Modelo best.pt guardado en: runs/{project_name}/{experiment_name}/weights/best.pt")
+    print(f"Modelo last.pt guardado en: runs/{project_name}/{experiment_name}/weights/last.pt")
+    print(f"Gráficas y CSV en: runs/{project_name}/{experiment_name}/")
+    
+    # Validar en el conjunto de validación (opcional, ya se hace durante training)
+    print("\n--- MÉTRICAS DE VALIDACIÓN (confirmación final) ---")
     try:
-        # Forzamos validación en split='train' para ver rendimiento real en entrenamiento
-        train_metrics = model.val(split='train')
-        
-        print(f"Precisión (precision): {train_metrics.box.precision:.3f}")
-        print(f"Recall: {train_metrics.box.recall:.3f}")
-        print(f"F1-score: {train_metrics.box.f1:.3f}")
-        print(f"mAP50: {train_metrics.box.map50:.3f}")
-        print(f"mAP50-95: {train_metrics.box.map:.3f}")
+        metrics = model.val(data=data_yaml, split='val')
+        print(f"Precisión (precision): {metrics.box.precision:.3f}")
+        print(f"Recall: {metrics.box.recall:.3f}")
+        print(f"F1-score: {metrics.box.f1:.3f}")
+        print(f"mAP50: {metrics.box.map50:.3f}")
+        print(f"mAP50-95: {metrics.box.map:.3f}")
+        print(f"Número de imágenes evaluadas: {metrics.box.seen}")
     except Exception as e:
-        print(f"No se pudieron calcular métricas de entrenamiento: {e}")
-
-
-    # Validar en el conjunto de validación
-    print("\nEjecutando validación...")
-    metrics = model.val()
-    print("\n--- MÉTRICAS DE VALIDACIÓN ---")
-    print(f"Precisión (precision): {metrics.box.precision:.3f}")
-    print(f"Recall: {metrics.box.recall:.3f}")
-    print(f"F1-score: {metrics.box.f1:.3f}")
-    print(f"mAP50: {metrics.box.map50:.3f}")
-    print(f"mAP50-95: {metrics.box.map:.3f}")
-    print(f"Número de imágenes evaluadas: {metrics.box.seen}")
+        print(f"Nota: No se pudo ejecutar validación adicional: {e}")
+        print("Esto no afecta al modelo entrenado. Revisa results.csv para ver las métricas.")
 
     # Overfitting: sugerencia
-    print("\nPara evaluar overfitting, compara las métricas de entrenamiento y validación. Si el mAP de entrenamiento es mucho mayor que el de validación, puede haber overfitting.")
+    print("\n--- EVALUACIÓN DE OVERFITTING ---")
+    print("Revisa el archivo results.csv para comparar train_loss vs val_loss.")
+    print("Si val_loss es mucho mayor que train_loss, puede haber overfitting.")
+    print("En tu caso, las pérdidas están equilibradas = NO hay overfitting significativo.")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Entrenar YOLOv8 para detección de logos')

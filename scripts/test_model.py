@@ -18,7 +18,8 @@ from pathlib import Path
 
 # Add project root to path to import src
 sys.path.append(str(Path(__file__).parent.parent))
-from src.config import DEFAULT_MODEL, OUTPUT_DIR
+from src.config import DEFAULT_MODEL, OUTPUT_DIR, MODELS_DIR
+import shutil
 
 
 def test_model(
@@ -40,6 +41,14 @@ def test_model(
     """
     print(f"Cargando modelo: {model_path}")
     model = YOLO(model_path)
+    
+    # Guardar una copia en la carpeta de modelos central
+    model_dest = MODELS_DIR / Path(model_path).name
+    if not model_dest.exists():
+        print(f"Guardando copia del modelo en: {model_dest}")
+        shutil.copy(model_path, model_dest)
+    else:
+        print(f"El modelo ya existe en la carpeta central: {model_dest}")
     
     os.makedirs(output_dir, exist_ok=True)
     
