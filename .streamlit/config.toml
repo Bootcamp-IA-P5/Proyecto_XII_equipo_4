@@ -9,7 +9,7 @@ font = "sans serif"
 port = 8501
 headless = false
 runOnSave = true
-maxUploadSize = 200
+maxUploadSize = 1024
 enableXsrfProtection = true
 
 [client]

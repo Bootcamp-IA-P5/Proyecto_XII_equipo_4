@@ -379,15 +379,117 @@ with tab2:
         st.divider()
         st.subheader("📥 Analysis Settings")
         
-        analyze_after_download = st.checkbox(
-            "Analyze after download",
-            value=True,
-            help="Automatically analyze the video after download"
-        )
-        
-        if analyze_after_download and st.session_state.get('downloaded_video_path'):
+        # Analysis options for downloaded video
+        if st.session_state.get('downloaded_video_path'):
+            st.success(f"✅ Video ready for analysis")
+            
+            extract_crops_sm = st.checkbox(
+                "Extract Cropped Images",
+                value=True,
+                key="extract_crops_sm",
+                help="Save cropped regions of detected logos"
+            )
+            
+            save_to_db_sm = st.checkbox(
+                "Save to Database",
+                value=True,
+                key="save_to_db_sm",
+                help="Store detection results in database"
+            )
+            
             if st.button("🔍 Analyze Downloaded Video", use_container_width=True, type="primary"):
-                st.info("Analyzing downloaded video...")
+                st.session_state.processing_video = True
+                
+                video_path = st.session_state.downloaded_video_path
+                
+                # Display video info first
+                cap = cv2.VideoCapture(video_path)
+                if cap.isOpened():
+                    fps = cap.get(cv2.CAP_PROP_FPS)
+                    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    duration = total_frames / fps if fps > 0 else 0
+                    cap.release()
+                    
+                    st.write("**Video Information:**")
+                    col_info1, col_info2, col_info3 = st.columns(3)
+                    with col_info1:
+                        st.metric("Duration", f"{duration:.1f}s")
+                    with col_info2:
+                        st.metric("Resolution", f"{width}x{height}")
+                    with col_info3:
+                        st.metric("FPS", f"{fps:.1f}")
+                
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                
+                def progress_callback(progress, message):
+                    progress_bar.progress(progress)
+                    status_text.text(message)
+                
+                try:
+                    status_text.text("🔄 Processing video...")
+                    
+                    # Process video
+                    results = st.session_state.video_processor.process_video(
+                        video_path,
+                        confidence_threshold=confidence,
+                        frame_skip=frame_skip,
+                        progress_callback=progress_callback
+                    )
+                    
+                    status_text.text("🖼️ Extracting detections...")
+                    
+                    # Extract cropped images if requested
+                    if extract_crops_sm:
+                        results = st.session_state.video_processor.extract_cropped_detections(
+                            video_path,
+                            results
+                        )
+                    
+                    # Save to database if requested
+                    video_id = None
+                    if save_to_db_sm:
+                        status_text.text("💾 Saving to database...")
+                        
+                        # Get video name from path
+                        video_name = Path(video_path).name
+                        
+                        video_id = st.session_state.database.add_video(
+                            nombre=video_name,
+                            duracion_seg=results['duration_seconds']
+                        )
+                        
+                        # Add detections
+                        st.session_state.database.add_detections(
+                            video_id,
+                            results['detections']
+                        )
+                    
+                    progress_bar.progress(1.0)
+                    status_text.text("✅ Analysis complete!")
+                    
+                    # Display results
+                    st.success("Video analysis completed successfully!")
+                    
+                    # Store results in session
+                    st.session_state.last_results = results
+                    st.session_state.last_video_id = video_id
+                    
+                    # Show quick summary
+                    st.write("**Quick Summary:**")
+                    st.write(f"- Total Detections: {len(results['detections'])}")
+                    st.write(f"- Unique Brands: {len(results['class_statistics'])}")
+                    st.write(f"- Processing Time: {results.get('processing_time', 'N/A')}")
+                    st.info("📊 View full results in the 'Results & Reports' tab")
+                    
+                except Exception as e:
+                    st.error(f"❌ Error processing video: {str(e)}")
+                    logger.error(f"Error processing downloaded video: {e}", exc_info=True)
+                
+                finally:
+                    st.session_state.processing_video = False
 
 # ============================================================================
 # TAB 3: RESULTS & REPORTS
@@ -423,6 +525,7 @@ with tab3:
             
             for tab, (brand_name, stats) in zip(brand_tabs, results['class_statistics'].items()):
                 with tab:
+                    # Brand-specific metrics
                     col1, col2, col3, col4 = st.columns(4)
                     
                     with col1:
@@ -436,34 +539,44 @@ with tab3:
                     
                     st.write(f"**Max Confidence**: {stats['max_confidence']:.2%}")
                     st.write(f"**Frames Detected**: {stats['frames_detected']}")
+                    
+                    st.divider()
+                    
+                    # Display cropped images for THIS BRAND ONLY
+                    if results.get('cropped_images'):
+                        st.subheader(f"🖼️ {brand_name} Logo Samples")
+                        
+                        # Filter cropped images by brand name
+                        brand_cropped_images = [
+                            img_info for img_info in results['cropped_images']
+                            if img_info.get('class', '').lower() == brand_name.lower()
+                        ]
+                        
+                        if brand_cropped_images:
+                            # Create columns for image grid
+                            cols = st.columns(3)
+                            
+                            # Show first 9 images for this brand
+                            for idx, img_info in enumerate(brand_cropped_images[:9]):
+                                with cols[idx % 3]:
+                                    try:
+                                        img = cv2.imread(img_info['path'])
+                                        if img is not None:
+                                            img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                                            st.image(
+                                                img_rgb,
+                                                caption=f"Frame {img_info.get('frame_number', 'N/A')} - {img_info['confidence']:.2%}",
+                                                use_container_width=True
+                                            )
+                                    except Exception as e:
+                                        st.error(f"Could not load image: {e}")
+                            
+                            if len(brand_cropped_images) > 9:
+                                st.info(f"... and {len(brand_cropped_images) - 9} more {brand_name} images")
+                        else:
+                            st.info(f"No cropped images available for {brand_name}")
             
             st.divider()
-            
-            # Display cropped images if available
-            if results.get('cropped_images'):
-                st.subheader("🖼️ Detected Logo Samples")
-                
-                cropped_images = results['cropped_images']
-                
-                # Create columns for image grid
-                cols = st.columns(3)
-                
-                for idx, img_info in enumerate(cropped_images[:9]):  # Show first 9
-                    with cols[idx % 3]:
-                        try:
-                            img = cv2.imread(img_info['path'])
-                            if img is not None:
-                                img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                                st.image(
-                                    img_rgb,
-                                    caption=f"{img_info['class']} ({img_info['confidence']:.2%})",
-                                    use_container_width=True
-                                )
-                        except Exception as e:
-                            st.error(f"Could not load image: {e}")
-                
-                if len(cropped_images) > 9:
-                    st.info(f"... and {len(cropped_images) - 9} more cropped images")
         
         st.divider()
         
