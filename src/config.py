@@ -21,6 +21,9 @@ OUTPUT_DIR = DATA_DIR / "output"
 # Models directory
 MODELS_DIR = BASE_DIR / "models"
 
+# Results directory (metrics, reports)
+RESULTS_DIR = BASE_DIR / "results"
+
 # =============================================================================
 # IMAGE SETTINGS
 # =============================================================================
@@ -43,10 +46,10 @@ NORMALIZE_STD = [0.229, 0.224, 0.225]
 # =============================================================================
 
 # Trained YOLO model for logo detection
-MODEL_PATH = "runs/detect/runs/logo_detection/full_training_run/weights/best.pt"
+MODEL_PATH = MODELS_DIR / "best.pt"
 
 # Default YOLO model (will be downloaded automatically if not present)
-DEFAULT_MODEL = MODEL_PATH  # Use the trained model as default
+DEFAULT_MODEL = str(MODEL_PATH)  # Use the trained model as default
 
 # Detection confidence threshold (0.0 - 1.0)
 CONFIDENCE_THRESHOLD = 0.5
@@ -95,7 +98,7 @@ LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
 def ensure_directories():
     """Create necessary directories if they don't exist."""
-    directories = [DATA_DIR, INPUT_DIR, OUTPUT_DIR, MODELS_DIR]
+    directories = [DATA_DIR, INPUT_DIR, OUTPUT_DIR, MODELS_DIR, RESULTS_DIR]
     for directory in directories:
         directory.mkdir(parents=True, exist_ok=True)
 

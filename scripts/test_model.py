@@ -1,25 +1,17 @@
 from ultralytics import YOLO
 # Ejemplo de ejecución:
-# python scripts/test_model.py --model runs/logo_detection/train/weights/best.pt
-# Para definir los argumentos:
-# python scripts/train_yolo.py --epochs 100 --batch 8 --imgsz 640 --name full_training_run
+# python scripts/test_model.py --model models/best.pt
+# python scripts/test_model.py --model models/best.pt --source path/to/images
 
-#Para ver los resultados del entrenamiento:
-# python scripts/test_model.py --model runs/logo_detection/full_training_run/weights/best.pt --source path/to/test/images
-# \runs\detect\runs\logo_detection\full_training_run\results.csv
 import argparse
 import os
 from pathlib import Path
-import cv2
-import matplotlib.pyplot as plt
 import random
 import sys
-from pathlib import Path
 
 # Add project root to path to import src
 sys.path.append(str(Path(__file__).parent.parent))
 from src.config import DEFAULT_MODEL, OUTPUT_DIR, MODELS_DIR
-import shutil
 
 
 def test_model(
@@ -41,14 +33,6 @@ def test_model(
     """
     print(f"Cargando modelo: {model_path}")
     model = YOLO(model_path)
-    
-    # Guardar una copia en la carpeta de modelos central
-    model_dest = MODELS_DIR / Path(model_path).name
-    if not model_dest.exists():
-        print(f"Guardando copia del modelo en: {model_dest}")
-        shutil.copy(model_path, model_dest)
-    else:
-        print(f"El modelo ya existe en la carpeta central: {model_dest}")
     
     os.makedirs(output_dir, exist_ok=True)
     
