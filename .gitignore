@@ -230,3 +230,4 @@ data/input/
 data/output/
 runs/
 *.pt
+*.jpg
