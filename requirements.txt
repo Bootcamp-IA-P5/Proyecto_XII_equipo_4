@@ -77,3 +77,22 @@ ultralytics-thop==2.0.18
 urllib3==2.6.3
 watchdog==6.0.0
 yt-dlp==2026.1.29
+
+# Development dependencies
+pytest>=7.0.0
+pytest-cov>=4.0.0
+pytest-asyncio>=0.21.0
+black>=23.0.0
+flake8>=6.0.0
+pylint>=2.17.0
+isort>=5.12.0
+mypy>=1.0.0
+types-requests
+types-pillow
+sphinx>=6.0.0
+sphinx-rtd-theme>=1.2.0
+ipython>=8.0.0
+jupyter>=1.0.0
+notebook>=6.5.0
+memory-profiler>=0.61.0
+line-profiler>=4.0.0
