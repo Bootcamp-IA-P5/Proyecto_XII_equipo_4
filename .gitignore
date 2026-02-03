@@ -225,3 +225,8 @@ scripts/create_test_video.py
 
 #OTROS
 README_req.md
+
+data/input/
+data/output/
+runs/
+*.pt

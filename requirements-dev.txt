@@ -1,0 +1,30 @@
+# Development requirements (in addition to requirements.txt)
+
+# Testing
+pytest>=7.0.0
+pytest-cov>=4.0.0
+pytest-asyncio>=0.21.0
+
+# Code quality
+black>=23.0.0
+flake8>=6.0.0
+pylint>=2.17.0
+isort>=5.12.0
+
+# Type checking
+mypy>=1.0.0
+types-requests
+types-pillow
+
+# Documentation
+sphinx>=6.0.0
+sphinx-rtd-theme>=1.2.0
+
+# Debugging
+ipython>=8.0.0
+jupyter>=1.0.0
+notebook>=6.5.0
+
+# Profiling
+memory-profiler>=0.61.0
+line-profiler>=4.0.0
