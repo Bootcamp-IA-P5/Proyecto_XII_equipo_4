@@ -1,0 +1,22 @@
+# Frontend Streamlit requirements
+
+# Streamlit framework
+streamlit>=1.30.0
+streamlit-option-menu>=0.3.0
+
+# Data visualization
+matplotlib>=3.7.0
+pandas>=2.0.0
+altair>=5.0.0
+
+# Image handling
+pillow>=10.0.0
+opencv-python>=4.8.0
+numpy>=1.24.0
+
+# HTTP client (to connect to FastAPI backend)
+requests>=2.31.0
+httpx>=0.25.0
+
+# Utilities
+python-dotenv>=1.0.0

@@ -13,10 +13,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import numpy as np
 import cv2
 
-from src import config
-from src.preprocessing import resize_image, normalize_image, get_image_info
-from src.image_loader import ImageLoader
-from src.visualization import draw_bounding_box, add_label, annotate_image
+from back.services import config
+from back.services.preprocessing import resize_image, normalize_image, get_image_info
+from back.services.image_loader import ImageLoader
+from back.services.visualization import draw_bounding_box, add_label, annotate_image
 
 
 class TestPreprocessing:
