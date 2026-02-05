@@ -53,8 +53,9 @@ def train_yolo(
     # Cargar modelo
     model = YOLO(model_name)
     
-    # Directorio temporal para entrenamiento
-    temp_project = Path("temp_training")
+    # Directorio temporal para entrenamiento (ruta absoluta)
+    project_root = Path(__file__).parent.parent
+    temp_project = project_root / "temp_training"
     
     # Argumentos adicionales
     args = {
@@ -81,17 +82,28 @@ def train_yolo(
     print("\n✅ Entrenamiento completado!")
     
     # Copiar modelos a la carpeta models/
-    weights_dir = temp_project / experiment_name / "weights"
+    experiment_dir = temp_project / experiment_name
+    weights_dir = experiment_dir / "weights"
     best_src = weights_dir / "best.pt"
     last_src = weights_dir / "last.pt"
+    results_csv_src = experiment_dir / "results.csv"
     
     if best_src.exists():
         shutil.copy(best_src, MODELS_DIR / "best.pt")
         print(f"✅ Modelo best.pt copiado a: {MODELS_DIR / 'best.pt'}")
+    else:
+        print(f"⚠️ No se encontró best.pt en: {best_src}")
     
     if last_src.exists():
         shutil.copy(last_src, MODELS_DIR / "last.pt")
         print(f"✅ Modelo last.pt copiado a: {MODELS_DIR / 'last.pt'}")
+    else:
+        print(f"⚠️ No se encontró last.pt en: {last_src}")
+    
+    # Copiar results.csv a results/
+    if results_csv_src.exists():
+        shutil.copy(results_csv_src, RESULTS_DIR / f"{experiment_name}_results.csv")
+        print(f"✅ results.csv copiado a: {RESULTS_DIR / f'{experiment_name}_results.csv'}")
 
     # Validar y guardar métricas
     print("\n--- MÉTRICAS DE VALIDACIÓN ---")
@@ -131,13 +143,23 @@ def train_yolo(
     except Exception as e:
         print(f"Nota: No se pudo ejecutar validación adicional: {e}")
 
-    # Limpiar directorio temporal
+    # Limpiar directorios temporales
     print("\n🧹 Limpiando archivos temporales...")
     try:
-        shutil.rmtree(temp_project)
-        print("✅ Archivos temporales eliminados")
+        if temp_project.exists():
+            shutil.rmtree(temp_project)
+            print("✅ temp_training/ eliminado")
     except Exception as e:
-        print(f"⚠️ No se pudo eliminar carpeta temporal: {e}")
+        print(f"⚠️ No se pudo eliminar temp_training/: {e}")
+    
+    # Eliminar runs/ si se creó (YOLO a veces lo crea por defecto)
+    runs_dir = project_root / "runs"
+    try:
+        if runs_dir.exists():
+            shutil.rmtree(runs_dir)
+            print("✅ runs/ eliminado")
+    except Exception as e:
+        print(f"⚠️ No se pudo eliminar runs/: {e}")
 
     print("\n" + "=" * 60)
     print("🎉 ENTRENAMIENTO FINALIZADO")
