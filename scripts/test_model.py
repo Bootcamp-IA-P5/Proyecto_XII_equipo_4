@@ -9,9 +9,9 @@ from pathlib import Path
 import random
 import sys
 
-# Add project root to path to import src
+# Add project root to path to import back
 sys.path.append(str(Path(__file__).parent.parent))
-from src.config import DEFAULT_MODEL, OUTPUT_DIR, MODELS_DIR
+from back.services.config import DEFAULT_MODEL, OUTPUT_DIR, MODELS_DIR
 
 
 def test_model(

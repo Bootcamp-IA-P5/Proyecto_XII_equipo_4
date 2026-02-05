@@ -16,9 +16,9 @@ import shutil
 from pathlib import Path
 from datetime import datetime
 
-# Add project root to path to import src
+# Add project root to path to import back
 sys.path.append(str(Path(__file__).parent.parent))
-from src.config import OUTPUT_DIR, MODELS_DIR, RESULTS_DIR, ensure_directories
+from back.services.config import OUTPUT_DIR, MODELS_DIR, RESULTS_DIR, ensure_directories
 
 
 def train_yolo(
