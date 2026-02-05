@@ -13,6 +13,8 @@ from datetime import datetime
 import json
 import logging
 import sys
+import re
+from typing import Dict, List, Optional, Tuple
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -27,6 +29,246 @@ from database.mysql_db import MySQLDatabase
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def _build_crop_index(cropped_images: Optional[List[Dict]]) -> Dict[Tuple[int, str], List[Dict]]:
+    index: Dict[Tuple[int, str], List[Dict]] = {}
+    if not cropped_images:
+        return index
+
+    for item in cropped_images:
+        frame_number = item.get("frame_number")
+        class_name = item.get("class")
+        if frame_number is None or class_name is None:
+            continue
+        key = (int(frame_number), str(class_name))
+        index.setdefault(key, []).append(item)
+    return index
+
+
+def _attach_crops_to_detections(results: Dict) -> List[Dict]:
+    detections = results.get("detections", [])
+    crop_index = _build_crop_index(results.get("cropped_images"))
+    review_items: List[Dict] = []
+
+    for idx, detection in enumerate(detections):
+        frame_number = detection.get("frame_number")
+        class_name = detection.get("class")
+        crop_path = None
+        if frame_number is not None and class_name is not None:
+            key = (int(frame_number), str(class_name))
+            if key in crop_index and crop_index[key]:
+                crop_path = crop_index[key].pop(0).get("path")
+
+        review_items.append({
+            **detection,
+            "crop_path": crop_path,
+            "review_id": idx
+        })
+
+    return review_items
+
+
+def _build_frame_detections(detections: List[Dict]) -> Dict[int, List[Dict]]:
+    frame_detections: Dict[int, List[Dict]] = {}
+    for detection in detections:
+        frame_number = detection.get("frame_number")
+        if frame_number is None:
+            continue
+        frame_detections.setdefault(int(frame_number), []).append(detection)
+    return frame_detections
+
+
+def _compute_class_statistics(
+    detections: List[Dict],
+    frame_detections: Dict[int, List[Dict]],
+    total_frames: int,
+    fps: float,
+    frame_skip: int
+) -> Dict[str, Dict]:
+    class_statistics: Dict[str, Dict] = {}
+
+    for detection in detections:
+        class_name = detection.get("class", "Unknown")
+        confidence = float(detection.get("confidence", 0))
+
+        if class_name not in class_statistics:
+            class_statistics[class_name] = {
+                "detections_count": 0,
+                "frames_detected": 0,
+                "total_time": 0,
+                "avg_confidence": 0,
+                "max_confidence": 0,
+                "confidences": []
+            }
+
+        stats = class_statistics[class_name]
+        stats["detections_count"] += 1
+        stats["confidences"].append(confidence)
+        stats["max_confidence"] = max(stats["max_confidence"], confidence)
+
+    for class_name, stats in class_statistics.items():
+        confidences = stats.get("confidences", [])
+        if confidences:
+            stats["avg_confidence"] = float(np.mean(confidences))
+            stats["frames_detected"] = len([
+                frame for frame, dets in frame_detections.items()
+                if any(d.get("class") == class_name for d in dets)
+            ])
+            if fps > 0:
+                stats["total_time"] = stats["frames_detected"] * (frame_skip / fps)
+            if total_frames > 0 and frame_skip > 0:
+                denominator = total_frames // frame_skip
+                stats["percentage"] = (stats["frames_detected"] / denominator * 100) if denominator else 0
+        if "confidences" in stats:
+            del stats["confidences"]
+
+    return class_statistics
+
+
+def _build_verified_results(base_results: Dict, verified_detections: List[Dict]) -> Dict:
+    cleaned_detections = [
+        {k: v for k, v in det.items() if k not in {"crop_path", "review_id"}}
+        for det in verified_detections
+    ]
+
+    frame_detections = _build_frame_detections(cleaned_detections)
+    detected_frames = len(frame_detections)
+    total_frames = int(base_results.get("total_frames", 0))
+    fps = float(base_results.get("fps", 0))
+    frame_skip = int(base_results.get("frame_skip", 1))
+
+    verified_results = dict(base_results)
+    verified_results["detections"] = cleaned_detections
+    verified_results["frame_detections"] = frame_detections
+    verified_results["detected_frames"] = detected_frames
+    verified_results["class_statistics"] = _compute_class_statistics(
+        cleaned_detections,
+        frame_detections,
+        total_frames,
+        fps,
+        frame_skip
+    )
+
+    if verified_results.get("cropped_images"):
+        verified_results["cropped_images"] = [
+            crop for crop in verified_results["cropped_images"]
+            if any(
+                crop.get("frame_number") == det.get("frame_number") and
+                crop.get("class") == det.get("class")
+                for det in cleaned_detections
+            )
+        ]
+
+    return verified_results
+
+
+def save_verified_detections() -> int:
+    detections = st.session_state.get("pending_detections", [])
+    verified = [
+        det for det in detections
+        if st.session_state.review_selection.get(det.get("review_id"), True)
+    ]
+
+    if not verified:
+        return 0
+
+    if st.session_state.pending_save_to_db and st.session_state.pending_video_id:
+        inserted = st.session_state.database.add_detections(
+            st.session_state.pending_video_id,
+            [
+                {k: v for k, v in det.items() if k not in {"crop_path", "review_id"}}
+                for det in verified
+            ]
+        )
+        return inserted
+
+    return 0
+
+
+def _render_review_ui(prefix: str = "review") -> None:
+    """Render review gallery with checkboxes and confirmation button in a form.
+    
+    This function ONLY renders the UI - it does NOT save to database.
+    Database save only happens when save_verified_detections() is explicitly called.
+    """
+    if not st.session_state.get("pending_results") or not st.session_state.get("pending_detections"):
+        return
+
+    st.subheader("🧪 Review Detections")
+    st.write("Uncheck false positives, then confirm to save only verified detections.")
+
+    detections = st.session_state.pending_detections
+    
+    # Use a form to prevent reruns when checkboxes are clicked
+    with st.form(key=f"{prefix}_review_form"):
+        cols = st.columns(3)
+
+        for idx, det in enumerate(detections):
+            review_id = det.get("review_id", idx)
+            key = f"{prefix}_keep_{review_id}"
+
+            # Initialize checkbox value from session state
+            if key not in st.session_state:
+                st.session_state[key] = st.session_state.review_selection.get(review_id, True)
+
+            with cols[idx % 3]:
+                crop_path = det.get("crop_path")
+                if crop_path and Path(crop_path).exists():
+                    img = cv2.imread(crop_path)
+                    if img is not None:
+                        st.image(
+                            cv2.cvtColor(img, cv2.COLOR_BGR2RGB),
+                            caption=f"{det.get('class', 'Unknown')} · {det.get('confidence', 0):.1%}",
+                            width="stretch"
+                        )
+                else:
+                    st.write("No crop available")
+
+                # Checkbox inside form - value is preserved between reruns
+                keep = st.checkbox(
+                    label="Keep detection",
+                    value=st.session_state[key],
+                    key=key
+                )
+                st.session_state.review_selection[review_id] = keep
+
+                st.caption(
+                    f"Frame {det.get('frame_number', 'N/A')} · "
+                    f"{det.get('class', 'Unknown')} · "
+                    f"{det.get('confidence', 0):.1%}"
+                )
+
+        st.divider()
+
+        # Submit button inside form - only executes when clicked
+        submitted = st.form_submit_button("✅ Confirm & Save to Database", use_container_width=True)
+        
+        if submitted:
+            verified = [
+                det for det in detections
+                if st.session_state.review_selection.get(det.get("review_id"), True)
+            ]
+
+            verified_results = _build_verified_results(st.session_state.pending_results, verified)
+            st.session_state.verified_results = verified_results
+            st.session_state.last_results = verified_results
+
+            # CRITICAL: Only call save_verified_detections() when button is submitted
+            inserted = save_verified_detections()
+            if st.session_state.pending_save_to_db and st.session_state.pending_video_id:
+                st.success(f"✅ Saved {inserted} verified detections to the database.")
+            else:
+                st.info("✅ Verified detections stored in session (database save disabled).")
+
+            st.session_state.pending_results = None
+            st.session_state.pending_detections = []
+            st.session_state.pending_video_id = None
+            st.session_state.pending_save_to_db = False
+            st.session_state.analysis_complete = False
 
 # ============================================================================
 # PAGE CONFIGURATION
@@ -76,6 +318,27 @@ if 'database' not in st.session_state:
 if 'processing_video' not in st.session_state:
     st.session_state.processing_video = False
 
+if 'pending_results' not in st.session_state:
+    st.session_state.pending_results = None
+
+if 'pending_detections' not in st.session_state:
+    st.session_state.pending_detections = []
+
+if 'pending_video_id' not in st.session_state:
+    st.session_state.pending_video_id = None
+
+if 'pending_save_to_db' not in st.session_state:
+    st.session_state.pending_save_to_db = False
+
+if 'verified_results' not in st.session_state:
+    st.session_state.verified_results = None
+
+if 'review_selection' not in st.session_state:
+    st.session_state.review_selection = {}
+
+if 'analysis_complete' not in st.session_state:
+    st.session_state.analysis_complete = False
+
 # ============================================================================
 # SIDEBAR CONFIGURATION
 # ============================================================================
@@ -109,10 +372,10 @@ with st.sidebar:
         st.success("MySQL connected")
     else:
         st.error("MySQL connection failed")
-    if st.button("View Database Stats", use_container_width=True):
+    if st.button("View Database Stats", width="stretch"):
         st.session_state.show_db_stats = not st.session_state.get('show_db_stats', False)
     
-    if st.button("Export Database", use_container_width=True):
+    if st.button("Export Database", width="stretch"):
         st.info("Database export feature coming soon!")
 
 # ============================================================================
@@ -142,8 +405,17 @@ tab1, tab2, tab3, tab4 = st.tabs([
 
 with tab1:
     st.header("Upload & Analyze Videos")
+
+    if st.session_state.analysis_complete:
+        with st.container():
+            _render_review_ui(prefix="upload_review")
+            st.divider()
     
     col1, col2 = st.columns(2)
+    
+    with col2:
+        st.subheader("📹 Preview")
+        preview_placeholder = st.empty()
     
     with col1:
         st.subheader("📤 Upload Local Video")
@@ -201,15 +473,29 @@ with tab1:
                 )
             
             # Analyze button
-            if st.button("🔍 Analyze Video", use_container_width=True, type="primary"):
+            if st.button("🔍 Analyze Video", width="stretch", type="primary"):
                 st.session_state.processing_video = True
+                st.session_state.analysis_complete = False
                 
                 progress_bar = st.progress(0)
                 status_text = st.empty()
                 
+                preview_cap = cv2.VideoCapture(video_path)
+                
                 def progress_callback(progress, message):
                     progress_bar.progress(progress)
                     status_text.text(message)
+
+                    match = re.search(r"Processed (\d+)/(\d+) frames", message)
+                    if match and preview_cap.isOpened():
+                        frame_number = int(match.group(1))
+                        preview_cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
+                        ret, frame = preview_cap.read()
+                        if ret:
+                            preview_placeholder.image(
+                                cv2.cvtColor(frame, cv2.COLOR_BGR2RGB),
+                                width="stretch"
+                            )
                 
                 try:
                     status_text.text("Processing video...")
@@ -231,31 +517,32 @@ with tab1:
                             results
                         )
                     
-                    # Save to database if requested
+                    # CRITICAL: Only save video METADATA here, NOT detections
+                    # All detections store in session state for manual verification
+                    # Database INSERT of detections only happens when user clicks "Confirm & Save"
                     video_id = None
                     if save_to_db:
-                        status_text.text("Saving to database...")
-                        
+                        status_text.text("Saving video metadata...")
+                        # This ONLY creates the video record - NO detections are saved yet
                         video_id = st.session_state.database.add_video(
                             nombre=uploaded_file.name,
                             duracion_seg=results['duration_seconds']
                         )
-                        
-                        # Add detections
-                        st.session_state.database.add_detections(
-                            video_id,
-                            results['detections']
-                        )
-                        
-                        # Brand statistics are derived from detections in MySQL
                     
                     progress_bar.progress(1.0)
                     status_text.text("✅ Analysis complete!")
                     
                     # Display results
                     st.success("Video analysis completed successfully!")
-                    
-                    # Store results in session
+
+                    # Store pending results for manual verification
+                    st.session_state.pending_results = results
+                    st.session_state.pending_detections = _attach_crops_to_detections(results)
+                    st.session_state.pending_video_id = video_id
+                    st.session_state.pending_save_to_db = save_to_db
+                    st.session_state.review_selection = {}
+                    st.session_state.analysis_complete = True
+
                     st.session_state.last_results = results
                     st.session_state.last_video_id = video_id
                     
@@ -265,13 +552,12 @@ with tab1:
                 
                 finally:
                     st.session_state.processing_video = False
+                    if preview_cap.isOpened():
+                        preview_cap.release()
                     # Clean up temporary file
                     if Path(video_path).exists():
                         os.remove(video_path)
 
-    with col2:
-        st.subheader("📹 Preview")
-        st.info("Video preview will appear here")
 
 # ============================================================================
 # TAB 2: SOCIAL MEDIA LINKS
@@ -282,6 +568,11 @@ with tab2:
     st.markdown("""
     Download videos from YouTube, Instagram, TikTok, Facebook, and Twitter for analysis.
     """)
+
+    if st.session_state.analysis_complete:
+        with st.container():
+            _render_review_ui(prefix="social_review")
+            st.divider()
     
     col1, col2 = st.columns(2)
     
@@ -315,7 +606,7 @@ with tab2:
                 st.error("❌ Platform not detected or not supported")
         
         # Download button
-        if st.button("⬇️ Download Video", use_container_width=True, type="primary"):
+        if st.button("⬇️ Download Video", width="stretch", type="primary"):
             if not video_url:
                 st.error("Please enter a video URL")
             else:
@@ -401,8 +692,9 @@ with tab2:
                 help="Store detection results in database"
             )
             
-            if st.button("🔍 Analyze Downloaded Video", use_container_width=True, type="primary"):
+            if st.button("🔍 Analyze Downloaded Video", width="stretch", type="primary"):
                 st.session_state.processing_video = True
+                st.session_state.analysis_complete = False
                 
                 video_path = st.session_state.downloaded_video_path
                 
@@ -452,23 +744,18 @@ with tab2:
                             results
                         )
                     
-                    # Save to database if requested
+                    # CRITICAL: Only save video METADATA here, NOT detections
+                    # All detections store in session state for manual verification
+                    # Database INSERT of detections only happens when user clicks "Confirm & Save"
                     video_id = None
                     if save_to_db_sm:
-                        status_text.text("💾 Saving to database...")
-                        
-                        # Get video name from path
+                        status_text.text("💾 Saving video metadata...")
+                        # This ONLY creates the video record - NO detections are saved yet
                         video_name = Path(video_path).name
                         
                         video_id = st.session_state.database.add_video(
                             nombre=video_name,
                             duracion_seg=results['duration_seconds']
-                        )
-                        
-                        # Add detections
-                        st.session_state.database.add_detections(
-                            video_id,
-                            results['detections']
                         )
                     
                     progress_bar.progress(1.0)
@@ -477,7 +764,14 @@ with tab2:
                     # Display results
                     st.success("Video analysis completed successfully!")
                     
-                    # Store results in session
+                    # Store pending results for manual verification
+                    st.session_state.pending_results = results
+                    st.session_state.pending_detections = _attach_crops_to_detections(results)
+                    st.session_state.pending_video_id = video_id
+                    st.session_state.pending_save_to_db = save_to_db_sm
+                    st.session_state.review_selection = {}
+                    st.session_state.analysis_complete = True
+
                     st.session_state.last_results = results
                     st.session_state.last_video_id = video_id
                     
@@ -502,9 +796,9 @@ with tab2:
 with tab3:
     st.header("📊 Detection Results & Reports")
     
-    # Display last results if available
-    if st.session_state.get('last_results'):
-        results = st.session_state.last_results
+    # Display verified results only
+    if st.session_state.get('verified_results'):
+        results = st.session_state.verified_results
         
         st.subheader("📈 Video Statistics")
         
@@ -570,7 +864,7 @@ with tab3:
                                             st.image(
                                                 img_rgb,
                                                 caption=f"Frame {img_info.get('frame_number', 'N/A')} - {img_info['confidence']:.2%}",
-                                                use_container_width=True
+                                                width="stretch"
                                             )
                                     except Exception as e:
                                         st.error(f"Could not load image: {e}")
@@ -597,7 +891,7 @@ with tab3:
             data=report,
             file_name=f"detection_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
             mime="text/plain",
-            use_container_width=True
+            width="stretch"
         )
         
         # Download results as JSON
@@ -606,9 +900,11 @@ with tab3:
             data=json.dumps(results, indent=2, default=str),
             file_name=f"detection_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json",
             mime="application/json",
-            use_container_width=True
+            width="stretch"
         )
     
+    elif st.session_state.get('pending_results'):
+        st.info("Detections are pending manual verification. Please review and confirm to view results.")
     else:
         st.info("No results yet. Upload and analyze a video to see results here.")
 
@@ -654,7 +950,7 @@ with tab4:
                     'Total Duration': f"{stats['total_duration_seconds']:.1f}s"
                 })
             
-            st.dataframe(summary_df, use_container_width=True)
+            st.dataframe(summary_df, width="stretch")
     
     st.divider()
     
