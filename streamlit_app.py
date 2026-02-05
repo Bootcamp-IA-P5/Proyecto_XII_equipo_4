@@ -54,11 +54,27 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ============================================================================
+# MODEL PATH VALIDATION
+# ============================================================================
+
+# Check if the model file exists
+model_path = Path(config.MODEL_PATH)
+if not model_path.exists():
+    st.error(f"""⚠️ **Model file not found!**
+    
+    The trained YOLO model is missing at: `{config.MODEL_PATH}`
+    
+    Please ensure the model file exists before running the application.
+    You may need to train the model first or download it from your repository.
+    """)
+    st.stop()
+
+# ============================================================================
 # SESSION STATE INITIALIZATION
 # ============================================================================
 
 if 'pipeline' not in st.session_state:
-    st.session_state.pipeline = DetectionPipeline()
+    st.session_state.pipeline = DetectionPipeline(model_path=config.MODEL_PATH)
 
 if 'video_processor' not in st.session_state:
     st.session_state.video_processor = VideoProcessor(st.session_state.pipeline)
@@ -546,10 +562,10 @@ with tab3:
                     if results.get('cropped_images'):
                         st.subheader(f"🖼️ {brand_name} Logo Samples")
                         
-                        # Filter cropped images by brand name
+                        # Filter cropped images by brand name (case-insensitive and strip whitespace)
                         brand_cropped_images = [
                             img_info for img_info in results['cropped_images']
-                            if img_info.get('class', '').lower() == brand_name.lower()
+                            if img_info.get('class', '').strip().lower() == brand_name.strip().lower()
                         ]
                         
                         if brand_cropped_images:
