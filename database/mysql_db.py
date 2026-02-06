@@ -47,6 +47,8 @@ class MySQLDatabase:
                 user=self.user,
                 password=self.password,
                 autocommit=False,
+                charset="utf8mb4",
+                collation="utf8mb4_general_ci",
             )
             logger.info("Connected to MySQL database")
         except Error as e:

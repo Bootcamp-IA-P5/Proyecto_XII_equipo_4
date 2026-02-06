@@ -207,7 +207,7 @@ class VideoProcessor:
                 crop_name = f"{Path(video_path).stem}_f{frame_num}_{class_name}_{i}.jpg"
                 crop_path = output_dir / crop_name
                 
-                cv2.imwrite(str(crop_path), cropped)
+                cv2.imencode('.jpg', cropped)[1].tofile(str(crop_path))
                 
                 results['cropped_images'].append({
                     'path': str(crop_path),
