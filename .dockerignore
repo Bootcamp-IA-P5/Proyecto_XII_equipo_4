@@ -1,0 +1,81 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv
+venv
+ENV
+env
+*.egg-info
+.eggs
+dist
+build
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache
+.coverage
+htmlcov
+.tox
+
+# Jupyter
+.ipynb_checkpoints
+*.ipynb
+
+# Logs
+*.log
+logs/
+
+# Temp files
+*.tmp
+temp/
+tmp/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Large data files - EXCLUDE FROM BUILD
+data/input/
+data/output/
+data/__MACOSX/
+data/yolo_dataset/
+
+# Results (will be volume mounted)
+results/
+inference_results/
+temp_videos/
+
+# Runs from training (not needed in container)
+runs/
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Tests (not needed in production)
+tests/
+.pytest_cache/
+
+# Scripts (development only)
+scripts/
+
+# License
+LICENSE
+
+# Model files - will be volume mounted
+*.pt
+models/
