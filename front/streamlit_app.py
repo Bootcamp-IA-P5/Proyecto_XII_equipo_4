@@ -572,6 +572,10 @@ with tab1:
                     if Path(video_path).exists():
                         os.remove(video_path)
 
+                # Force rerun so the review gallery renders immediately
+                if st.session_state.analysis_complete:
+                    st.rerun()
+
 
 # ============================================================================
 # TAB 2 -- SOCIAL MEDIA LINKS
@@ -761,6 +765,10 @@ with tab2:
 
                 finally:
                     st.session_state.processing_video = False
+
+                # Force rerun so the review gallery renders immediately
+                if st.session_state.analysis_complete:
+                    st.rerun()
 
 
 # ============================================================================
