@@ -422,9 +422,8 @@ st.markdown(
 # TABS
 # ============================================================================
 
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3 = st.tabs([
     "Upload & Analyze",
-    "Social Media Links",
     "Results & Reports",
     "Database",
 ])
@@ -442,6 +441,14 @@ with tab1:
             _render_review_ui(prefix="upload_review")
             st.divider()
 
+    # ----- Input source selector -----
+    input_source = st.radio(
+        "Video Source",
+        ["Upload Local Video", "Social Media Link"],
+        horizontal=True,
+        help="Choose how to provide the video for analysis",
+    )
+
     col1, col2 = st.columns(2)
 
     with col2:
@@ -449,243 +456,154 @@ with tab1:
         preview_placeholder = st.empty()
         preview_placeholder.info("Video preview will appear here during analysis")
 
-    with col1:
-        st.subheader("Upload Local Video")
-
-        uploaded_file = st.file_uploader(
-            "Choose a video file",
-            type=["mp4", "avi", "mov", "mkv", "flv", "wmv", "webm"],
-        )
-
-        if uploaded_file is not None:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
-                tmp_file.write(uploaded_file.read())
-                video_path = tmp_file.name
-
-            st.success(f"Video uploaded: {uploaded_file.name}")
-
-            cap = cv2.VideoCapture(video_path)
-            if cap.isOpened():
-                fps = cap.get(cv2.CAP_PROP_FPS)
-                total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-                width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-                height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-                duration = total_frames / fps if fps > 0 else 0
-                cap.release()
-
-                c1, c2, c3, c4 = st.columns(4)
-                with c1:
-                    st.metric("Duration", f"{duration:.1f}s")
-                with c2:
-                    st.metric("FPS", f"{fps:.1f}")
-                with c3:
-                    st.metric("Resolution", f"{width}x{height}")
-                with c4:
-                    st.metric("Frames", total_frames)
-
-            st.subheader("Analysis Options")
-            co1, co2 = st.columns(2)
-            with co1:
-                extract_crops = st.checkbox("Extract Cropped Images", value=True,
-                                            help="Save cropped regions of detected logos")
-            with co2:
-                save_to_db = st.checkbox("Save to Database", value=True,
-                                         help="Store detection results in database")
-
-            # ===== PHASE 1: Analyze button =====
-            if st.button("Analyze Video", type="primary"):
-                st.session_state.processing_video = True
-                # Clear previous staging
-                st.session_state.analysis_complete = False
-                st.session_state.pending_detections = []
-                st.session_state.pending_results = None
-
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-
-                # Open a second capture for live preview
-                preview_cap = cv2.VideoCapture(video_path)
-
-                def progress_callback(progress, message):
-                    progress_bar.progress(progress)
-                    status_text.text(message)
-                    # Live preview: show the frame currently being processed
-                    match = re.search(r"Processed (\d+)/(\d+) frames", message)
-                    if match and preview_cap.isOpened():
-                        frame_number = int(match.group(1))
-                        preview_cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
-                        ret, frame = preview_cap.read()
-                        if ret:
-                            preview_placeholder.image(
-                                cv2.cvtColor(frame, cv2.COLOR_BGR2RGB),
-                                caption=f"Processing frame {frame_number}",
-                            )
-
-                try:
-                    status_text.text("Processing video...")
-
-                    # PHASE 1: ANALYSIS -- NO DATABASE WRITES FOR DETECTIONS
-                    results = st.session_state.video_processor.process_video(
-                        video_path,
-                        confidence_threshold=confidence,
-                        frame_skip=frame_skip,
-                        progress_callback=progress_callback,
-                    )
-
-                    if extract_crops:
-                        status_text.text("Extracting crops...")
-                        results = st.session_state.video_processor.extract_cropped_detections(
-                            video_path, results,
-                        )
-
-                    # Save video METADATA only -- NO detections written here
-                    video_id = None
-                    if save_to_db:
-                        status_text.text("Saving video metadata...")
-                        video_id = st.session_state.database.add_video(
-                            nombre=uploaded_file.name,
-                            duracion_seg=results["duration_seconds"],
-                        )
-
-                    progress_bar.progress(1.0)
-                    status_text.text("Analysis complete!")
-                    st.success("Video analysis completed successfully!")
-
-                    # Stage ALL detections in session state (Phase 1 output)
-                    st.session_state.pending_results = results
-                    st.session_state.pending_detections = _attach_crops_to_detections(results)
-                    st.session_state.pending_video_id = video_id
-                    st.session_state.pending_save_to_db = save_to_db
-                    st.session_state.analysis_complete = True
-
-                    st.session_state.last_results = results
-                    st.session_state.last_video_id = video_id
-
-                except Exception as e:
-                    st.error(f"Error processing video: {str(e)}")
-                    logger.error(f"Error processing video: {e}")
-
-                finally:
-                    st.session_state.processing_video = False
-                    if preview_cap.isOpened():
-                        preview_cap.release()
-                    if Path(video_path).exists():
-                        os.remove(video_path)
-
-                # Force rerun so the review gallery renders immediately
-                if st.session_state.analysis_complete:
-                    st.rerun()
-
-
-# ============================================================================
-# TAB 2 -- SOCIAL MEDIA LINKS
-# ============================================================================
-
-with tab2:
-    st.header("Analyze Videos from Social Media")
-    st.markdown("Download videos from YouTube, Instagram, TikTok, Facebook, and Twitter for analysis.")
-
-    col1, col2 = st.columns(2)
+        # Show supported platforms info when Social Media is selected
+        if input_source == "Social Media Link":
+            st.divider()
+            st.subheader("Supported Platforms")
+            platforms_info = {
+                "YouTube": "Full support - Public and private videos",
+                "Instagram": "Posts and Reels - Requires credentials",
+                "TikTok": "Full support - TikTok videos",
+                "Facebook": "Full support - Facebook videos",
+                "Twitter/X": "Full support - Twitter videos",
+            }
+            for plat, info in platforms_info.items():
+                st.write(f"**{plat}**: {info}")
 
     with col1:
-        st.subheader("Add Video Link")
+        # =================================================================
+        # OPTION A: Upload Local Video
+        # =================================================================
+        if input_source == "Upload Local Video":
+            st.subheader("Upload Local Video")
 
-        video_url = st.text_input(
-            "Video URL",
-            placeholder="https://www.youtube.com/watch?v=...",
-            help="Paste the link to a video from YouTube, Instagram, TikTok, Facebook, or Twitter",
-        )
+            uploaded_file = st.file_uploader(
+                "Choose a video file",
+                type=["mp4", "avi", "mov", "mkv", "flv", "wmv", "webm"],
+            )
 
-        custom_name = st.text_input(
-            "Custom Video Name (Optional)",
-            placeholder="my_brand_video",
-            help="Custom name for the downloaded video",
-        )
+            if uploaded_file is not None:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
+                    tmp_file.write(uploaded_file.read())
+                    video_path = tmp_file.name
 
-        if video_url:
-            platform = st.session_state.video_downloader.detect_platform(video_url)
-            if platform:
-                st.success(f"Detected platform: **{platform.upper()}**")
-                if platform == "instagram":
-                    st.warning("Instagram requires login credentials")
-                    with st.expander("Instagram Credentials"):
-                        ig_username = st.text_input("Instagram Username", type="default")
-                        ig_password = st.text_input("Instagram Password", type="password")
-            else:
-                st.error("Platform not detected or not supported")
+                st.success(f"Video uploaded: {uploaded_file.name}")
+                st.session_state._current_video_path = video_path
+                st.session_state._current_video_name = uploaded_file.name
+                st.session_state._delete_after_analysis = True
 
-        if st.button("Download Video", type="primary"):
-            if not video_url:
-                st.error("Please enter a video URL")
-            else:
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                try:
-                    status_text.text("Detecting platform...")
-                    progress_bar.progress(25)
-                    platform = st.session_state.video_downloader.detect_platform(video_url)
-                    if not platform:
-                        st.error("Platform not supported")
-                    else:
-                        status_text.text(f"Downloading from {platform}...")
-                        progress_bar.progress(50)
-                        credentials = None
-                        if platform == "instagram":
-                            credentials = {
-                                "username": st.session_state.get("ig_username"),
-                                "password": st.session_state.get("ig_password"),
-                            }
-                        result = st.session_state.video_downloader.download(
-                            video_url, video_name=custom_name, credentials=credentials,
-                        )
-                        progress_bar.progress(75)
-                        if result["success"]:
-                            status_text.text("Download complete!")
-                            progress_bar.progress(100)
-                            st.success("Video downloaded successfully!")
-                            st.json(result)
-                            st.session_state.downloaded_video_path = result["path"]
-                            st.session_state.downloaded_video_platform = result.get("platform")
+                cap = cv2.VideoCapture(video_path)
+                if cap.isOpened():
+                    fps = cap.get(cv2.CAP_PROP_FPS)
+                    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                    width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                    height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                    duration = total_frames / fps if fps > 0 else 0
+                    cap.release()
+
+                    c1, c2, c3, c4 = st.columns(4)
+                    with c1:
+                        st.metric("Duration", f"{duration:.1f}s")
+                    with c2:
+                        st.metric("FPS", f"{fps:.1f}")
+                    with c3:
+                        st.metric("Resolution", f"{width}x{height}")
+                    with c4:
+                        st.metric("Frames", total_frames)
+
+                st.subheader("Analysis Options")
+                co1, co2 = st.columns(2)
+                with co1:
+                    extract_crops = st.checkbox("Extract Cropped Images", value=True,
+                                                help="Save cropped regions of detected logos")
+                with co2:
+                    save_to_db = st.checkbox("Save to Database", value=True,
+                                             help="Store detection results in database")
+
+                st.session_state._extract_crops = extract_crops
+                st.session_state._save_to_db = save_to_db
+                st.session_state._ready_to_analyze = True
+
+                if st.button("Analyze Video", type="primary"):
+                    st.session_state._run_analysis = True
+
+        # =================================================================
+        # OPTION B: Social Media Link
+        # =================================================================
+        else:
+            st.subheader("Download from Social Media")
+
+            video_url = st.text_input(
+                "Video URL",
+                placeholder="https://www.youtube.com/watch?v=...",
+                help="Paste the link to a video from YouTube, Instagram, TikTok, Facebook, or Twitter",
+            )
+
+            custom_name = st.text_input(
+                "Custom Video Name (Optional)",
+                placeholder="my_brand_video",
+                help="Custom name for the downloaded video",
+            )
+
+            if video_url:
+                platform = st.session_state.video_downloader.detect_platform(video_url)
+                if platform:
+                    st.success(f"Detected platform: **{platform.upper()}**")
+                    if platform == "instagram":
+                        st.warning("Instagram requires login credentials")
+                        with st.expander("Instagram Credentials"):
+                            ig_username = st.text_input("Instagram Username", type="default")
+                            ig_password = st.text_input("Instagram Password", type="password")
+                else:
+                    st.error("Platform not detected or not supported")
+
+            if st.button("Download Video", type="primary"):
+                if not video_url:
+                    st.error("Please enter a video URL")
+                else:
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+                    try:
+                        status_text.text("Detecting platform...")
+                        progress_bar.progress(25)
+                        platform = st.session_state.video_downloader.detect_platform(video_url)
+                        if not platform:
+                            st.error("Platform not supported")
                         else:
-                            st.error(f"Download failed: {result.get('error')}")
-                except Exception as e:
-                    st.error(f"Error downloading video: {str(e)}")
-                    logger.error(f"Error downloading video: {e}")
+                            status_text.text(f"Downloading from {platform}...")
+                            progress_bar.progress(50)
+                            credentials = None
+                            if platform == "instagram":
+                                credentials = {
+                                    "username": st.session_state.get("ig_username"),
+                                    "password": st.session_state.get("ig_password"),
+                                }
+                            result = st.session_state.video_downloader.download(
+                                video_url, video_name=custom_name, credentials=credentials,
+                            )
+                            progress_bar.progress(75)
+                            if result["success"]:
+                                status_text.text("Download complete!")
+                                progress_bar.progress(100)
+                                st.success("Video downloaded successfully!")
+                                st.json(result)
+                                st.session_state.downloaded_video_path = result["path"]
+                                st.session_state.downloaded_video_platform = result.get("platform")
+                            else:
+                                st.error(f"Download failed: {result.get('error')}")
+                    except Exception as e:
+                        st.error(f"Error downloading video: {str(e)}")
+                        logger.error(f"Error downloading video: {e}")
 
-    with col2:
-        st.subheader("Supported Platforms")
-        platforms_info = {
-            "YouTube": "Full support - Public and private videos",
-            "Instagram": "Posts and Reels - Requires credentials",
-            "TikTok": "Full support - TikTok videos",
-            "Facebook": "Full support - Facebook videos",
-            "Twitter/X": "Full support - Twitter videos",
-        }
-        for plat, info in platforms_info.items():
-            st.write(f"**{plat}**: {info}")
-
-        st.divider()
-        st.subheader("Analysis Settings")
-
-        if st.session_state.get("downloaded_video_path"):
-            st.success("Video ready for analysis")
-
-            extract_crops_sm = st.checkbox(
-                "Extract Cropped Images", value=True, key="extract_crops_sm",
-                help="Save cropped regions of detected logos",
-            )
-            save_to_db_sm = st.checkbox(
-                "Save to Database", value=True, key="save_to_db_sm",
-                help="Store detection results in database",
-            )
-
-            if st.button("Analyze Downloaded Video", type="primary"):
-                st.session_state.processing_video = True
-                st.session_state.analysis_complete = False
-                st.session_state.pending_detections = []
-                st.session_state.pending_results = None
+            # ----- Analyze downloaded video -----
+            if st.session_state.get("downloaded_video_path"):
+                st.divider()
+                st.success("Video ready for analysis")
 
                 video_path = st.session_state.downloaded_video_path
+                st.session_state._current_video_path = video_path
+                st.session_state._current_video_name = Path(video_path).name
+                st.session_state._delete_after_analysis = False
 
                 cap = cv2.VideoCapture(video_path)
                 if cap.isOpened():
@@ -705,77 +623,125 @@ with tab2:
                     with ci3:
                         st.metric("FPS", f"{fps:.1f}")
 
-                progress_bar = st.progress(0)
-                status_text = st.empty()
+                extract_crops_sm = st.checkbox(
+                    "Extract Cropped Images", value=True, key="extract_crops_sm",
+                    help="Save cropped regions of detected logos",
+                )
+                save_to_db_sm = st.checkbox(
+                    "Save to Database", value=True, key="save_to_db_sm",
+                    help="Store detection results in database",
+                )
 
-                def progress_callback(progress, message):
-                    progress_bar.progress(progress)
-                    status_text.text(message)
+                st.session_state._extract_crops = extract_crops_sm
+                st.session_state._save_to_db = save_to_db_sm
+                st.session_state._ready_to_analyze = True
 
-                try:
-                    status_text.text("Processing video...")
+                if st.button("Analyze Downloaded Video", type="primary"):
+                    st.session_state._run_analysis = True
 
-                    # PHASE 1: ANALYSIS -- NO DATABASE WRITES FOR DETECTIONS
-                    results = st.session_state.video_processor.process_video(
-                        video_path,
-                        confidence_threshold=confidence,
-                        frame_skip=frame_skip,
-                        progress_callback=progress_callback,
+    # =====================================================================
+    # SHARED ANALYSIS PIPELINE (used by BOTH input sources)
+    # =====================================================================
+    if st.session_state.get("_run_analysis") and st.session_state.get("_current_video_path"):
+        video_path = st.session_state._current_video_path
+        video_name = st.session_state._current_video_name
+        extract_crops = st.session_state._extract_crops
+        save_to_db = st.session_state._save_to_db
+        delete_after = st.session_state.get("_delete_after_analysis", False)
+
+        st.session_state._run_analysis = False
+        st.session_state.processing_video = True
+        st.session_state.analysis_complete = False
+        st.session_state.pending_detections = []
+        st.session_state.pending_results = None
+
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+
+        # Open a second capture for live preview
+        preview_cap = cv2.VideoCapture(video_path)
+
+        def progress_callback(progress, message):
+            progress_bar.progress(progress)
+            status_text.text(message)
+            # Live preview: show the frame currently being processed
+            match = re.search(r"Processed (\d+)/(\d+) frames", message)
+            if match and preview_cap.isOpened():
+                frame_number = int(match.group(1))
+                preview_cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
+                ret, frame = preview_cap.read()
+                if ret:
+                    preview_placeholder.image(
+                        cv2.cvtColor(frame, cv2.COLOR_BGR2RGB),
+                        caption=f"Processing frame {frame_number}",
                     )
 
-                    if extract_crops_sm:
-                        status_text.text("Extracting detections...")
-                        results = st.session_state.video_processor.extract_cropped_detections(
-                            video_path, results,
-                        )
+        try:
+            status_text.text("Processing video...")
 
-                    # Save video METADATA only -- NO detections written here
-                    video_id = None
-                    if save_to_db_sm:
-                        status_text.text("Saving video metadata...")
-                        video_name = Path(video_path).name
-                        video_id = st.session_state.database.add_video(
-                            nombre=video_name,
-                            duracion_seg=results["duration_seconds"],
-                        )
+            # PHASE 1: ANALYSIS -- NO DATABASE WRITES FOR DETECTIONS
+            results = st.session_state.video_processor.process_video(
+                video_path,
+                confidence_threshold=confidence,
+                frame_skip=frame_skip,
+                progress_callback=progress_callback,
+            )
 
-                    progress_bar.progress(1.0)
-                    status_text.text("Analysis complete!")
-                    st.success("Video analysis completed successfully!")
+            if extract_crops:
+                status_text.text("Extracting crops...")
+                results = st.session_state.video_processor.extract_cropped_detections(
+                    video_path, results,
+                )
 
-                    # Stage ALL detections in session state (Phase 1 output)
-                    st.session_state.pending_results = results
-                    st.session_state.pending_detections = _attach_crops_to_detections(results)
-                    st.session_state.pending_video_id = video_id
-                    st.session_state.pending_save_to_db = save_to_db_sm
-                    st.session_state.analysis_complete = True
+            # Save video METADATA only -- NO detections written here
+            video_id = None
+            if save_to_db:
+                status_text.text("Saving video metadata...")
+                video_id = st.session_state.database.add_video(
+                    nombre=video_name,
+                    duracion_seg=results["duration_seconds"],
+                )
 
-                    st.session_state.last_results = results
-                    st.session_state.last_video_id = video_id
+            progress_bar.progress(1.0)
+            status_text.text("Analysis complete!")
+            st.success("Video analysis completed successfully!")
 
-                    st.write("**Quick Summary:**")
-                    st.write(f"- Total Detections: {len(results['detections'])}")
-                    st.write(f"- Unique Brands: {len(results['class_statistics'])}")
-                    st.write(f"- Processing Time: {results.get('processing_time', 'N/A')}")
-                    st.info("View full results in the Results & Reports tab")
+            # Stage ALL detections in session state (Phase 1 output)
+            st.session_state.pending_results = results
+            st.session_state.pending_detections = _attach_crops_to_detections(results)
+            st.session_state.pending_video_id = video_id
+            st.session_state.pending_save_to_db = save_to_db
+            st.session_state.analysis_complete = True
 
-                except Exception as e:
-                    st.error(f"Error processing video: {str(e)}")
-                    logger.error(f"Error processing downloaded video: {e}", exc_info=True)
+            st.session_state.last_results = results
+            st.session_state.last_video_id = video_id
 
-                finally:
-                    st.session_state.processing_video = False
+        except Exception as e:
+            st.error(f"Error processing video: {str(e)}")
+            logger.error(f"Error processing video: {e}", exc_info=True)
 
-                # Force rerun so the review gallery renders immediately
-                if st.session_state.analysis_complete:
-                    st.rerun()
+        finally:
+            st.session_state.processing_video = False
+            if preview_cap.isOpened():
+                preview_cap.release()
+            if delete_after and Path(video_path).exists():
+                os.remove(video_path)
+
+        # Clean up temporary state
+        st.session_state._current_video_path = None
+        st.session_state._current_video_name = None
+        st.session_state._ready_to_analyze = False
+
+        # Force rerun so the review gallery renders immediately
+        if st.session_state.analysis_complete:
+            st.rerun()
 
 
 # ============================================================================
-# TAB 3 -- RESULTS & REPORTS
+# TAB 2 -- RESULTS & REPORTS
 # ============================================================================
 
-with tab3:
+with tab2:
     st.header("Detection Results & Reports")
 
     if st.session_state.get("verified_results"):
@@ -867,10 +833,10 @@ with tab3:
 
 
 # ============================================================================
-# TAB 4 -- DATABASE
+# TAB 3 -- DATABASE
 # ============================================================================
 
-with tab4:
+with tab3:
     st.header("Database Management")
 
     col1, col2 = st.columns(2)
