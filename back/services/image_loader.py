@@ -67,7 +67,8 @@ class ImageLoader:
             print(f"Warning: Invalid image path: {path}")
             return None
         
-        image = cv2.imread(str(path))
+        data = np.fromfile(str(path), dtype=np.uint8)
+        image = cv2.imdecode(data, cv2.IMREAD_COLOR)
         
         if image is None:
             print(f"Warning: Could not read image: {path}")

@@ -141,8 +141,9 @@ def load_and_preprocess(
         print(f"Error: Unsupported format: {image_path.suffix}")
         return None
     
-    # Load image
-    image = cv2.imread(str(image_path))
+    # Load image (use np.fromfile + imdecode for Unicode path safety on Windows)
+    data = np.fromfile(str(image_path), dtype=np.uint8)
+    image = cv2.imdecode(data, cv2.IMREAD_COLOR)
     
     if image is None:
         print(f"Error: Could not read image: {image_path}")

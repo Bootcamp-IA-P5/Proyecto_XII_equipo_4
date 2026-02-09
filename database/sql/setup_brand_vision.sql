@@ -1,6 +1,8 @@
 -- Create database
 DROP DATABASE IF EXISTS brand_vision;
-CREATE DATABASE brand_vision;
+CREATE DATABASE brand_vision
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_general_ci;
 USE brand_vision;
 
 -- Create videos table
