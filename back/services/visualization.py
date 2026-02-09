@@ -10,6 +10,24 @@ from pathlib import Path
 
 from . import config
 
+def get_confidence_color(confidence: float) -> Tuple[int, int, int]:
+    """
+    Returns a color based on the confidence level.
+    Verde: >80%
+    Amarillo: 50-80%
+    Rojo: <50%
+
+    Args:
+        confidence: Confidence level (0.0 - 1.0)
+    Returns:
+        Color in BGR format
+    """
+    if confidence > 0.8:
+        return (0, 255, 0)  # Verde
+    elif confidence > 0.5:
+        return (0, 255, 255)  # Amarillo
+    else:
+        return (0, 0, 255)  # Rojo
 
 def draw_bounding_box(
     image: np.ndarray,
@@ -127,14 +145,16 @@ def annotate_detection(
         box: Bounding box as (x1, y1, x2, y2)
         label: Class label
         confidence: Detection confidence (0.0 - 1.0)
-        color: Color for box and label background
         show_confidence: Whether to show confidence percentage
         
     Returns:
         Annotated image
     """
-    if color is None:
-        color = config.BBOX_COLOR
+    # Usar color basado en confianza si está disponible, sino color por defecto
+    if confidence is not None:
+        color = get_confidence_color(confidence)
+    else:
+        color = color if color is not None else config.BBOX_COLOR
     
     # Draw bounding box
     draw_bounding_box(image, box, color)
