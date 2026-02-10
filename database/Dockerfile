@@ -8,7 +8,7 @@ WORKDIR /docker-entrypoint-initdb.d
 COPY init.sql /docker-entrypoint-initdb.d/01-init.sql
 
 # Set environment variables
-ENV MYSQL_DATABASE=logo_detection
+ENV MYSQL_DATABASE=brand_vision
 ENV MYSQL_USER=logo_user
 ENV MYSQL_PASSWORD=logo_password
 ENV MYSQL_ROOT_PASSWORD=root_password
