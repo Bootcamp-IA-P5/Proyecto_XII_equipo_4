@@ -1,83 +1,92 @@
 -- Database initialization script for Logo Detection
 -- This script runs automatically when MySQL container starts
+-- Schema matches mysql_db.py expectations (videos, brands, detections)
 
 -- Create the database if not exists
-CREATE DATABASE IF NOT EXISTS logo_detection;
-USE logo_detection;
+CREATE DATABASE IF NOT EXISTS brand_vision
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_general_ci;
+USE brand_vision;
 
--- Table for video analysis sessions
-CREATE TABLE IF NOT EXISTS analysis_sessions (
+-- Create videos table
+CREATE TABLE IF NOT EXISTS videos (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    session_id VARCHAR(50) UNIQUE NOT NULL,
-    video_name VARCHAR(255),
-    video_source VARCHAR(50),
-    start_time DATETIME DEFAULT CURRENT_TIMESTAMP,
-    end_time DATETIME,
-    status ENUM('processing', 'completed', 'failed') DEFAULT 'processing',
-    total_frames INT DEFAULT 0,
-    processed_frames INT DEFAULT 0,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+    nombre VARCHAR(255) NOT NULL,
+    duracion_seg FLOAT,
+    fecha_procesado DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- Table for detected logos
+-- Create brands table (IDs from dataset className2ClassID.txt)
+CREATE TABLE IF NOT EXISTS brands (
+    id INT PRIMARY KEY,
+    nombre VARCHAR(100) NOT NULL
+);
+
+-- Insert static brands
+INSERT INTO brands (id, nombre) VALUES
+(0, 'HP'),
+(1, 'adidas_symbol'),
+(2, 'adidas_text'),
+(3, 'aldi'),
+(4, 'apple'),
+(5, 'becks_symbol'),
+(6, 'becks_text'),
+(7, 'bmw'),
+(8, 'carlsberg_symbol'),
+(9, 'carlsberg_text'),
+(10, 'chimay_symbol'),
+(11, 'chimay_text'),
+(12, 'cocacola'),
+(13, 'corona_symbol'),
+(14, 'corona_text'),
+(15, 'dhl'),
+(16, 'erdinger_symbol'),
+(17, 'erdinger_text'),
+(18, 'esso_symbol'),
+(19, 'esso_text'),
+(20, 'fedex'),
+(21, 'ferrari'),
+(22, 'ford'),
+(23, 'fosters_symbol'),
+(24, 'fosters_text'),
+(25, 'google'),
+(26, 'guinness_symbol'),
+(27, 'guinness_text'),
+(28, 'heineken'),
+(29, 'milka'),
+(30, 'nvidia_symbol'),
+(31, 'nvidia_text'),
+(32, 'paulaner_symbol'),
+(33, 'paulaner_text'),
+(34, 'pepsi_symbol'),
+(35, 'pepsi_text'),
+(36, 'rittersport'),
+(37, 'shell'),
+(38, 'singha_symbol'),
+(39, 'singha_text'),
+(40, 'starbucks'),
+(41, 'stellaartois_symbol'),
+(42, 'stellaartois_text'),
+(43, 'texaco'),
+(44, 'tsingtao_symbol'),
+(45, 'tsingtao_text'),
+(46, 'ups')
+ON DUPLICATE KEY UPDATE nombre = VALUES(nombre);
+
+-- Create detections table
 CREATE TABLE IF NOT EXISTS detections (
     id INT AUTO_INCREMENT PRIMARY KEY,
-    session_id VARCHAR(50) NOT NULL,
-    frame_number INT NOT NULL,
-    timestamp_ms FLOAT,
-    class_name VARCHAR(100) NOT NULL,
-    class_id INT,
-    confidence FLOAT NOT NULL,
-    bbox_x1 FLOAT,
-    bbox_y1 FLOAT,
-    bbox_x2 FLOAT,
-    bbox_y2 FLOAT,
-    bbox_width FLOAT,
-    bbox_height FLOAT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (session_id) REFERENCES analysis_sessions(session_id) ON DELETE CASCADE,
-    INDEX idx_session_id (session_id),
-    INDEX idx_class_name (class_name),
-    INDEX idx_frame_number (frame_number)
+    video_id INT NOT NULL,
+    brand_id INT NOT NULL,
+    segundo FLOAT NOT NULL,
+    confianza FLOAT NOT NULL,
+    bbox_x FLOAT,
+    bbox_y FLOAT,
+    bbox_w FLOAT,
+    bbox_h FLOAT,
+    FOREIGN KEY (video_id) REFERENCES videos(id) ON DELETE CASCADE,
+    FOREIGN KEY (brand_id) REFERENCES brands(id) ON DELETE CASCADE
 );
-
--- Table for analysis statistics
-CREATE TABLE IF NOT EXISTS analysis_stats (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    session_id VARCHAR(50) NOT NULL,
-    class_name VARCHAR(100) NOT NULL,
-    total_detections INT DEFAULT 0,
-    avg_confidence FLOAT,
-    max_confidence FLOAT,
-    min_confidence FLOAT,
-    first_appearance_frame INT,
-    last_appearance_frame INT,
-    total_screen_time_ms FLOAT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (session_id) REFERENCES analysis_sessions(session_id) ON DELETE CASCADE,
-    UNIQUE KEY unique_session_class (session_id, class_name)
-);
-
--- Table for user preferences/settings
-CREATE TABLE IF NOT EXISTS settings (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    setting_key VARCHAR(100) UNIQUE NOT NULL,
-    setting_value TEXT,
-    description TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-);
-
--- Insert default settings
-INSERT INTO settings (setting_key, setting_value, description) VALUES
-    ('default_confidence_threshold', '0.5', 'Default confidence threshold for detections'),
-    ('default_model', 'yolov8n.pt', 'Default YOLO model to use'),
-    ('max_video_size_mb', '500', 'Maximum video file size in MB'),
-    ('supported_formats', 'mp4,avi,mov,mkv,webm', 'Supported video formats')
-ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value);
-
--- Create indexes for performance
 CREATE INDEX IF NOT EXISTS idx_detections_confidence ON detections(confidence);
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON analysis_sessions(status);
 CREATE INDEX IF NOT EXISTS idx_sessions_created ON analysis_sessions(created_at);

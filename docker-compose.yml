@@ -40,6 +40,9 @@ services:
     container_name: logo-detection-frontend
     ports:
       - "8501:8501"
+    volumes:
+      - ./models:/app/models:ro
+      - ./temp_videos:/app/temp_videos
     environment:
       - PYTHONUNBUFFERED=1
       - BACKEND_URL=http://backend:8000

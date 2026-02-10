@@ -11,13 +11,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsm6 \
     libxext6 \
     libxrender1 \
+    ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
 COPY front/requirements.txt /app/front/requirements.txt
 
 # Install Python dependencies
+# Install torch CPU-only first, then the rest of requirements
 RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir -r /app/front/requirements.txt
 
 # Copy application code
