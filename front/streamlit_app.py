@@ -658,23 +658,17 @@ with tab1:
         progress_bar = st.progress(0)
         status_text = st.empty()
 
-        # Open a second capture for live preview
-        preview_cap = cv2.VideoCapture(video_path)
-
-        def progress_callback(progress, message):
+        def progress_callback(progress, message, annotated_frame=None):
             progress_bar.progress(progress)
             status_text.text(message)
-            # Live preview: show the frame currently being processed
+            # Live preview: show the annotated frame with bounding boxes
             match = re.search(r"Processed (\d+)/(\d+) frames", message)
-            if match and preview_cap.isOpened():
+            if match and annotated_frame is not None:
                 frame_number = int(match.group(1))
-                preview_cap.set(cv2.CAP_PROP_POS_FRAMES, frame_number)
-                ret, frame = preview_cap.read()
-                if ret:
-                    preview_placeholder.image(
-                        cv2.cvtColor(frame, cv2.COLOR_BGR2RGB),
-                        caption=f"Processing frame {frame_number}",
-                    )
+                preview_placeholder.image(
+                    cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB),
+                    caption=f"Processing frame {frame_number}",
+                )
 
         try:
             status_text.text("Processing video...")
@@ -722,8 +716,6 @@ with tab1:
 
         finally:
             st.session_state.processing_video = False
-            if preview_cap.isOpened():
-                preview_cap.release()
             if delete_after and Path(video_path).exists():
                 os.remove(video_path)
 

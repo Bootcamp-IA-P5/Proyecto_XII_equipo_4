@@ -79,6 +79,7 @@ class VideoProcessor:
         
         frame_count = 0
         detected_frames = 0
+        last_annotated_frame = None  # Keep track of the latest frame with bounding boxes
         
         while True:
             ret, frame = cap.read()
@@ -126,13 +127,28 @@ class VideoProcessor:
                         results['detections'].append(detection_info)
                     
                     results['frame_detections'][frame_count] = frame_detections_list
+                    
+                    # Annotate and store the latest frame with detections
+                    vis_detections = [
+                        {
+                            'box': det['bbox'],
+                            'label': det['class'],
+                            'confidence': det['confidence']
+                        }
+                        for det in frame_detections_list
+                    ]
+                    last_annotated_frame = annotate_image(frame.copy(), vis_detections)
+                else:
+                    # Analyzed frame but no detections: show plain frame
+                    last_annotated_frame = frame.copy()
             
             frame_count += 1
             
-            # Progress callback
+            # Progress callback — send the latest annotated frame
             if progress_callback and frame_count % 30 == 0:
                 progress = min(frame_count / total_frames, 1.0)
-                progress_callback(progress, f"Processed {frame_count}/{total_frames} frames")
+                preview = last_annotated_frame if last_annotated_frame is not None else frame.copy()
+                progress_callback(progress, f"Processed {frame_count}/{total_frames} frames", preview)
         
         cap.release()
         
