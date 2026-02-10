@@ -245,7 +245,7 @@ def save_verified_detections() -> int:
 # ============================================================================
 
 def _render_review_ui(prefix: str = "review") -> None:
-    """Render review gallery with crop images and checkboxes inside a form.
+    """Render review gallery grouped by brand with Select All and individual checkboxes.
 
     This function ONLY renders the UI.  The database is NOT touched here.
     Database save only happens inside save_verified_detections().
@@ -258,60 +258,107 @@ def _render_review_ui(prefix: str = "review") -> None:
 
     detections = st.session_state.pending_detections
 
-    with st.form(key=f"{prefix}_review_form"):
-        submitted = st.form_submit_button("Confirm & Save to Database", type="primary")
+    # -- Group detections by brand --
+    brands: Dict[str, List[Dict]] = {}
+    for det in detections:
+        brand = det.get("brand", "Unknown")
+        brands.setdefault(brand, []).append(det)
 
-        cols = st.columns(3)
-        for idx, det in enumerate(detections):
-            review_id = det.get("review_id", idx)
-            cb_key = f"{prefix}_keep_{review_id}"
+    # -- Initialise per-detection session-state keys (only on first render) --
+    for det in detections:
+        rid = det.get("review_id", 0)
+        brand = det.get("brand", "Unknown")
+        ind_key = f"{prefix}_sel_{brand}_{rid}"
+        if ind_key not in st.session_state:
+            st.session_state[ind_key] = det.get("verified", True)
 
-            with cols[idx % 3]:
-                crop_path = det.get("crop_path")
-                if crop_path and Path(crop_path).exists():
-                    img = _safe_imread(crop_path)
-                    if img is not None:
-                        st.image(
-                            cv2.cvtColor(img, cv2.COLOR_BGR2RGB),
-                            caption=f"{det.get('brand', 'Unknown')} - {det.get('confidence', 0):.1%}",
-                        )
-                else:
-                    st.write("No crop available")
+    # -- Callback factory: "Select All" propagates to every detection in the brand --
+    def _make_select_all_cb(brand_name: str, brand_dets: List[Dict]):
+        def _cb():
+            new_val = st.session_state[f"{prefix}_selall_{brand_name}"]
+            for d in brand_dets:
+                st.session_state[f"{prefix}_sel_{brand_name}_{d.get('review_id', 0)}"] = new_val
+        return _cb
 
-                keep = st.checkbox(
-                    label="Keep detection",
-                    value=det.get("verified", True),
-                    key=cb_key,
-                )
-                det["verified"] = keep
+    COLS_PER_ROW = 3
 
-                st.caption(
-                    f"Frame {det.get('frame_number', 'N/A')} | "
-                    f"{det.get('brand', 'Unknown')} | "
-                    f"{det.get('confidence', 0):.1%}"
-                )
+    for brand_name in sorted(brands.keys()):
+        brand_dets = brands[brand_name]
+        count = len(brand_dets)
+
+        st.markdown(f"### Brand: {brand_name} ({count} detection{'s' if count != 1 else ''})")
+
+        # Compute whether every detection in this brand is currently selected
+        all_selected = all(
+            st.session_state.get(f"{prefix}_sel_{brand_name}_{d.get('review_id', 0)}", True)
+            for d in brand_dets
+        )
+        # Sync the Select-All key so the checkbox reflects individual changes
+        sa_key = f"{prefix}_selall_{brand_name}"
+        st.session_state[sa_key] = all_selected
+
+        st.checkbox(
+            f"Select All ({count})",
+            key=sa_key,
+            on_change=_make_select_all_cb(brand_name, brand_dets),
+        )
+
+        # -- Detection grid --
+        for row_start in range(0, count, COLS_PER_ROW):
+            row_dets = brand_dets[row_start:row_start + COLS_PER_ROW]
+            cols = st.columns(COLS_PER_ROW)
+            for col_idx, det in enumerate(row_dets):
+                rid = det.get("review_id", 0)
+                ind_key = f"{prefix}_sel_{brand_name}_{rid}"
+
+                with cols[col_idx]:
+                    crop_path = det.get("crop_path")
+                    if crop_path and Path(crop_path).exists():
+                        img = _safe_imread(crop_path)
+                        if img is not None:
+                            st.image(
+                                cv2.cvtColor(img, cv2.COLOR_BGR2RGB),
+                                caption=f"{brand_name} – {det.get('confidence', 0):.1%}",
+                            )
+                    else:
+                        st.write("No crop available")
+
+                    st.checkbox("Keep detection", key=ind_key)
+
+                    st.caption(
+                        f"Frame {det.get('frame_number', 'N/A')} | "
+                        f"{brand_name} | "
+                        f"{det.get('confidence', 0):.1%}"
+                    )
 
         st.divider()
 
-        if submitted:
-            verified = [d for d in detections if d.get("verified", True)]
-            verified_results = _build_verified_results(st.session_state.pending_results, verified)
-            st.session_state.verified_results = verified_results
-            st.session_state.last_results = verified_results
+    # -- Confirm & Save button (outside any form so callbacks work) --
+    if st.button("Confirm & Save to Database", type="primary", key=f"{prefix}_confirm_btn"):
+        # Sync session-state selections back to detection dicts
+        for det in detections:
+            rid = det.get("review_id", 0)
+            brand = det.get("brand", "Unknown")
+            det["verified"] = st.session_state.get(f"{prefix}_sel_{brand}_{rid}", True)
 
-            inserted = save_verified_detections()
-            if st.session_state.get("pending_save_to_db") and st.session_state.get("pending_video_id"):
-                st.success(f"Saved {inserted} verified detections to the database.")
-            else:
-                st.info("Verified detections stored in session (database save was disabled).")
+        verified = [d for d in detections if d.get("verified", True)]
+        verified_results = _build_verified_results(st.session_state.pending_results, verified)
+        st.session_state.verified_results = verified_results
+        st.session_state.last_results = verified_results
 
-            st.session_state.pending_results = None
-            st.session_state.pending_detections = []
-            st.session_state.pending_video_id = None
-            st.session_state.pending_save_to_db = False
-            st.session_state.analysis_complete = False
-            st.session_state.video_processed = False
-            st.rerun()
+        inserted = save_verified_detections()
+        if st.session_state.get("pending_save_to_db") and st.session_state.get("pending_video_id"):
+            st.success(f"Saved {inserted} verified detections to the database.")
+        else:
+            st.info("Verified detections stored in session (database save was disabled).")
+
+        st.session_state.pending_results = None
+        st.session_state.pending_detections = []
+        st.session_state.pending_video_id = None
+        st.session_state.pending_save_to_db = False
+        st.session_state.analysis_complete = False
+        st.session_state.video_processed = False
+        st.rerun()
 
 
 # ============================================================================
