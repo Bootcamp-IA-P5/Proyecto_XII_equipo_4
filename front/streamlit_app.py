@@ -14,6 +14,7 @@ import numpy as np
 from pathlib import Path
 import tempfile
 import os
+import time
 from datetime import datetime
 import json
 import logging
@@ -28,6 +29,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from back.services.pipeline import DetectionPipeline
 from back.services.video_processor import VideoProcessor
 from back.services.video_downloader import VideoDownloader
+from back.services.visualization import annotate_image
 from back.services import config
 from database.mysql_db import MySQLDatabase
 
@@ -375,6 +377,15 @@ if "verified_results" not in st.session_state:
 if "analysis_complete" not in st.session_state:
     st.session_state.analysis_complete = False
 
+if "live_running" not in st.session_state:
+    st.session_state.live_running = False
+
+if "live_detections" not in st.session_state:
+    st.session_state.live_detections = []
+
+if "live_stats" not in st.session_state:
+    st.session_state.live_stats = {"frames": 0, "detections": 0, "brands": {}}
+
 # ============================================================================
 # SIDEBAR
 # ============================================================================
@@ -423,9 +434,9 @@ st.markdown(
 # ============================================================================
 
 tab1, tab2, tab3 = st.tabs([
-    "Upload & Analyze",
-    "Results & Reports",
-    "Database",
+    "📁 Upload & Analyze",
+    "📊 Results & Reports",
+    "🗄️ Database",
 ])
 
 # ============================================================================
@@ -444,7 +455,7 @@ with tab1:
     # ----- Input source selector -----
     input_source = st.radio(
         "Video Source",
-        ["Upload Local Video", "Social Media Link"],
+        ["Upload Local Video", "Social Media Link", "Webcam", "Stream URL"],
         horizontal=True,
         help="Choose how to provide the video for analysis",
     )
@@ -469,6 +480,14 @@ with tab1:
             }
             for plat, info in platforms_info.items():
                 st.write(f"**{plat}**: {info}")
+
+        # Live stats panel for Webcam / Stream
+        if input_source in ("Webcam", "Stream URL"):
+            st.divider()
+            st.subheader("Live Statistics")
+            live_stats_placeholder = st.empty()
+            st.subheader("Detected Brands")
+            live_brands_placeholder = st.empty()
 
     with col1:
         # =================================================================
@@ -530,7 +549,7 @@ with tab1:
         # =================================================================
         # OPTION B: Social Media Link
         # =================================================================
-        else:
+        elif input_source == "Social Media Link":
             st.subheader("Download from Social Media")
 
             video_url = st.text_input(
@@ -639,8 +658,283 @@ with tab1:
                 if st.button("Analyze Downloaded Video", type="primary"):
                     st.session_state._run_analysis = True
 
+        # =================================================================
+        # OPTION C: Webcam
+        # =================================================================
+        elif input_source == "Webcam":
+            st.subheader("📷 Webcam Detection")
+            st.markdown("Detect brand logos in real-time using your webcam.")
+
+            camera_index = st.number_input(
+                "Camera Index",
+                min_value=0, max_value=10, value=0, step=1,
+                help="Select camera device index (0 = default webcam)",
+            )
+            live_source_value = int(camera_index)
+            live_source_label = "webcam"
+
+            st.session_state._live_source_value = live_source_value
+            st.session_state._live_source_label = live_source_label
+            st.session_state._live_ready = True
+
+            btn_c1, btn_c2 = st.columns(2)
+            with btn_c1:
+                if st.button("▶️ Start Detection", type="primary", key="webcam_start",
+                             disabled=st.session_state.live_running):
+                    st.session_state._run_live = True
+            with btn_c2:
+                if st.button("⏹️ Stop", key="webcam_stop",
+                             disabled=not st.session_state.live_running):
+                    st.session_state.live_running = False
+
+        # =================================================================
+        # OPTION D: Stream URL
+        # =================================================================
+        elif input_source == "Stream URL":
+            st.subheader("🌐 Stream URL Detection")
+            st.markdown(
+                "Detect brand logos from a live stream "
+                "(RTSP, HTTP, HLS, or any OpenCV-compatible URL)."
+            )
+
+            stream_url = st.text_input(
+                "Stream URL",
+                placeholder="rtsp://... or http://... or YouTube live URL",
+                help="RTSP, HTTP, or HLS stream URL",
+                key="stream_url_input",
+            )
+
+            if stream_url:
+                st.session_state._live_source_value = stream_url
+                st.session_state._live_source_label = "stream"
+                st.session_state._live_ready = True
+
+            btn_s1, btn_s2 = st.columns(2)
+            with btn_s1:
+                if st.button("▶️ Start Detection", type="primary", key="stream_start",
+                             disabled=st.session_state.live_running or not stream_url):
+                    st.session_state._run_live = True
+            with btn_s2:
+                if st.button("⏹️ Stop", key="stream_stop",
+                             disabled=not st.session_state.live_running):
+                    st.session_state.live_running = False
+
     # =====================================================================
-    # SHARED ANALYSIS PIPELINE (used by BOTH input sources)
+    # LIVE DETECTION LOOP (Webcam / Stream URL)
+    # =====================================================================
+    if st.session_state.get("_run_live") and st.session_state.get("_live_source_value") is not None:
+        source_value = st.session_state._live_source_value
+        source_label = st.session_state.get("_live_source_label", "source")
+
+        st.session_state._run_live = False
+        st.session_state.live_running = True
+        st.session_state.live_stats = {"frames": 0, "detections": 0, "brands": {}}
+
+        # Ensure model is loaded
+        pipeline = st.session_state.pipeline
+        if pipeline.model is None:
+            preview_placeholder.info("Loading detection model...")
+            if not pipeline.load_model():
+                st.error("Failed to load detection model.")
+                st.session_state.live_running = False
+
+        if st.session_state.live_running:
+            cap = cv2.VideoCapture(source_value)
+
+            if not cap.isOpened():
+                st.error(
+                    f"Cannot open {source_label}. Check the source and try again."
+                )
+                st.session_state.live_running = False
+            else:
+                # Place a stop button OUTSIDE the loop so Streamlit can render it
+                stop_placeholder = st.empty()
+
+                frame_count = 0
+                start_time = time.time()
+                fps_display = 0.0
+                all_live_detections: List[Dict] = []
+                live_frame_detections: Dict[int, List[Dict]] = {}
+
+                try:
+                    while st.session_state.live_running:
+                        # Render stop button each iteration so it stays responsive
+                        if stop_placeholder.button("⏹️ Stop Detection", key=f"live_stop_{frame_count}"):
+                            st.session_state.live_running = False
+                            break
+
+                        ret, frame = cap.read()
+                        if not ret:
+                            preview_placeholder.warning("⚠️ Lost connection. Retrying...")
+                            cap.release()
+                            time.sleep(1)
+                            cap = cv2.VideoCapture(source_value)
+                            if not cap.isOpened():
+                                preview_placeholder.error("❌ Could not reconnect.")
+                                break
+                            continue
+
+                        frame_count += 1
+                        frame_time = frame_count / 30.0  # approximate timestamp
+
+                        # Detect objects
+                        detections = pipeline.detect_objects(frame, confidence)
+
+                        # Draw bounding boxes
+                        if detections:
+                            vis_dets = [
+                                {
+                                    "box": d["bbox"],
+                                    "label": d["class"],
+                                    "confidence": d["confidence"],
+                                }
+                                for d in detections
+                            ]
+                            display_frame = annotate_image(frame, vis_dets)
+
+                            # Accumulate structured detections
+                            frame_det_list = []
+                            for d in detections:
+                                det_info = {
+                                    "frame_number": frame_count,
+                                    "timestamp": frame_time,
+                                    "class": d["class"],
+                                    "confidence": float(d["confidence"]),
+                                    "bbox": d["bbox"],
+                                }
+                                all_live_detections.append(det_info)
+                                frame_det_list.append(det_info)
+                            live_frame_detections[frame_count] = frame_det_list
+
+                            # Accumulate brand stats for live panel
+                            st.session_state.live_stats["detections"] += len(detections)
+                            for d in detections:
+                                brand = d["class"]
+                                sb = st.session_state.live_stats["brands"]
+                                if brand not in sb:
+                                    sb[brand] = {"count": 0, "max_conf": 0.0, "confs": []}
+                                sb[brand]["count"] += 1
+                                sb[brand]["max_conf"] = max(sb[brand]["max_conf"], d["confidence"])
+                                sb[brand]["confs"].append(d["confidence"])
+                        else:
+                            display_frame = frame
+
+                        st.session_state.live_stats["frames"] = frame_count
+
+                        # FPS
+                        elapsed = time.time() - start_time
+                        if elapsed > 0:
+                            fps_display = frame_count / elapsed
+
+                        # Update preview
+                        preview_placeholder.image(
+                            cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB),
+                            caption=f"Frame {frame_count} | {fps_display:.1f} FPS",
+                            use_container_width=True,
+                        )
+
+                        # Update live stats panel
+                        ls = st.session_state.live_stats
+                        live_stats_placeholder.markdown(
+                            f"**Frames:** {ls['frames']}  \n"
+                            f"**Detections:** {ls['detections']}  \n"
+                            f"**FPS:** {fps_display:.1f}  \n"
+                            f"**Elapsed:** {elapsed:.0f}s"
+                        )
+
+                        # Update brands panel
+                        if ls["brands"]:
+                            brand_lines = []
+                            for bname, bstats in sorted(
+                                ls["brands"].items(),
+                                key=lambda x: x[1]["count"],
+                                reverse=True,
+                            ):
+                                avg_c = (
+                                    sum(bstats["confs"]) / len(bstats["confs"])
+                                    if bstats["confs"] else 0
+                                )
+                                brand_lines.append(
+                                    f"- **{bname}**: {bstats['count']} det. "
+                                    f"(avg {avg_c:.1%}, max {bstats['max_conf']:.1%})"
+                                )
+                            live_brands_placeholder.markdown("\n".join(brand_lines))
+                        else:
+                            live_brands_placeholder.info("No brands detected yet...")
+
+                except Exception as e:
+                    logger.error(f"Live detection error: {e}", exc_info=True)
+                    st.error(f"Error during live detection: {e}")
+
+                finally:
+                    cap.release()
+                    st.session_state.live_running = False
+
+                    elapsed = time.time() - start_time
+                    ls = st.session_state.live_stats
+
+                    # Build results dict compatible with Results & Reports tab
+                    if all_live_detections:
+                        # Compute class statistics
+                        class_statistics: Dict[str, Dict] = {}
+                        for det in all_live_detections:
+                            cn = det["class"]
+                            if cn not in class_statistics:
+                                class_statistics[cn] = {
+                                    "detections_count": 0,
+                                    "frames_detected": 0,
+                                    "total_time": 0,
+                                    "avg_confidence": 0,
+                                    "max_confidence": 0,
+                                    "percentage": 0,
+                                    "_confs": [],
+                                }
+                            cs = class_statistics[cn]
+                            cs["detections_count"] += 1
+                            cs["_confs"].append(det["confidence"])
+                            cs["max_confidence"] = max(cs["max_confidence"], det["confidence"])
+
+                        analyzed_frames = frame_count
+                        for cn, cs in class_statistics.items():
+                            cs["avg_confidence"] = float(np.mean(cs["_confs"]))
+                            cs["frames_detected"] = len([
+                                f for f, dets in live_frame_detections.items()
+                                if any(d["class"] == cn for d in dets)
+                            ])
+                            cs["total_time"] = cs["frames_detected"] / 30.0
+                            cs["percentage"] = (
+                                cs["frames_detected"] / analyzed_frames * 100
+                            ) if analyzed_frames > 0 else 0
+                            del cs["_confs"]
+
+                        live_results = {
+                            "video_path": f"live_{source_label}",
+                            "video_name": f"Live {source_label.capitalize()} Session",
+                            "duration_seconds": elapsed,
+                            "total_frames": frame_count,
+                            "fps": fps_display,
+                            "width": 0,
+                            "height": 0,
+                            "detections": all_live_detections,
+                            "frame_detections": live_frame_detections,
+                            "class_statistics": class_statistics,
+                            "detected_frames": len(live_frame_detections),
+                            "frame_skip": 1,
+                            "processing_timestamp": datetime.now().isoformat(),
+                        }
+
+                        st.session_state.pending_results = live_results
+                        st.session_state.pending_detections = _attach_crops_to_detections(live_results)
+                        st.session_state.pending_video_id = None
+                        st.session_state.pending_save_to_db = False
+                        st.session_state.analysis_complete = True
+                        st.session_state.last_results = live_results
+
+                    # Rerun to refresh the page and show review UI
+                    st.rerun()
+
+    # =====================================================================
+    # SHARED ANALYSIS PIPELINE (used by Upload & Social Media)
     # =====================================================================
     if st.session_state.get("_run_analysis") and st.session_state.get("_current_video_path"):
         video_path = st.session_state._current_video_path
