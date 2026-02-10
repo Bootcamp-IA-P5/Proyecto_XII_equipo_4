@@ -5,11 +5,12 @@ fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
 python-multipart>=0.0.6
 
-# ML & Computer Vision
-torch>=2.0.0
-torchvision>=0.15.0
-ultralytics>=8.0.0
-opencv-python>=4.8.0
+# ML & Computer Vision (CPU-only builds for Docker)
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.0.0,<2.4.0
+torchvision>=0.15.0,<0.19.0
+ultralytics>=8.0.0,<8.3.0
+opencv-python-headless>=4.8.0
 numpy>=1.24.0
 pillow>=10.0.0
 

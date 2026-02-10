@@ -18,7 +18,7 @@ services:
       - MYSQL_PORT=3306
       - MYSQL_USER=logo_user
       - MYSQL_PASSWORD=logo_password
-      - MYSQL_DATABASE=logo_detection
+      - MYSQL_DATABASE=brand_vision   # ✅ MUST MATCH SQL SCRIPT
     depends_on:
       mysql:
         condition: service_healthy
@@ -47,7 +47,7 @@ services:
       - MYSQL_PORT=3306
       - MYSQL_USER=logo_user
       - MYSQL_PASSWORD=logo_password
-      - MYSQL_DATABASE=logo_detection
+      - MYSQL_DATABASE=brand_vision   # ✅ MUST MATCH SQL SCRIPT
     depends_on:
       - backend
     networks:
@@ -56,28 +56,29 @@ services:
 
   # MySQL Database Service
   mysql:
-    build:
-      context: ./database
-      dockerfile: Dockerfile
+    image: mysql:8.0
     container_name: logo-detection-mysql
     ports:
       - "3307:3306"
     environment:
       - MYSQL_ROOT_PASSWORD=root_password
-      - MYSQL_DATABASE=logo_detection
+      - MYSQL_DATABASE=brand_vision
       - MYSQL_USER=logo_user
       - MYSQL_PASSWORD=logo_password
     volumes:
       - mysql_data:/var/lib/mysql
+      - ./database/sql/setup_brand_vision.sql:/docker-entrypoint-initdb.d/setup.sql
     networks:
       - logo-network
     restart: unless-stopped
+
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot_password"]
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 30s
+
 
 networks:
   logo-network:
