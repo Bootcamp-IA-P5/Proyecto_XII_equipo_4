@@ -74,6 +74,11 @@ async def health_check():
     return {"status": "healthy"}
 
 
+@app.get("/test")
+async def test():
+    return {"message": "Backend is working"}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("back.main:app", host="0.0.0.0", port=8000, reload=True)
