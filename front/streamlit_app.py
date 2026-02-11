@@ -21,6 +21,7 @@ import logging
 import sys
 import re
 import threading
+import requests
 from typing import Dict, List, Optional, Tuple
 
 # Add parent directory to path for imports
@@ -37,6 +38,9 @@ from database.mysql_db import MySQLDatabase
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Backend URL
+BACKEND_URL = os.environ.get("BACKEND_URL", "http://localhost:8000")
 
 
 def _camera_worker(camera_idx, pipeline, confidence_threshold, stop_event, shared):
@@ -741,6 +745,7 @@ with tab1:
                                 st.json(result)
                                 st.session_state.downloaded_video_path = result["path"]
                                 st.session_state.downloaded_video_platform = result.get("platform")
+                                st.session_state._video_url = video_url
                             else:
                                 st.error(f"Download failed: {result.get('error')}")
                     except Exception as e:
@@ -1020,19 +1025,25 @@ with tab1:
         try:
             status_text.text("Processing video...")
 
-            # PHASE 1: ANALYSIS -- NO DATABASE WRITES FOR DETECTIONS
-            results = st.session_state.video_processor.process_video(
-                video_path,
-                confidence_threshold=confidence,
-                frame_skip=frame_skip,
-                progress_callback=progress_callback,
-            )
+            # PHASE 1: ANALYSIS -- Send to backend
+            if st.session_state.get("_video_url"):
+                # Send URL to backend download endpoint
+                params = {"url": st.session_state._video_url, "confidence": confidence, "frame_skip": frame_skip}
+                response = requests.post(f"{BACKEND_URL}/api/videos/download", params=params)
+                response.raise_for_status()
+                data = response.json()
+                results = data["analysis"]
+            else:
+                # Send file to backend upload endpoint
+                with open(video_path, "rb") as f:
+                    files = {"file": (video_name, f, "video/mp4")}
+                    params = {"confidence": confidence, "frame_skip": frame_skip}
+                    response = requests.post(f"{BACKEND_URL}/api/videos/upload", files=files, params=params)
+                    response.raise_for_status()
+                    data = response.json()
+                    results = data["analysis"]
 
-            if extract_crops:
-                status_text.text("Extracting crops...")
-                results = st.session_state.video_processor.extract_cropped_detections(
-                    video_path, results,
-                )
+            # Note: Crop extraction is handled by backend if needed
 
             # Save video METADATA only -- NO detections written here
             video_id = None
@@ -1063,6 +1074,7 @@ with tab1:
 
         finally:
             st.session_state.processing_video = False
+            st.session_state._video_url = None
             if delete_after and Path(video_path).exists():
                 os.remove(video_path)
 
